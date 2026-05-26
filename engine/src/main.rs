@@ -1,4 +1,153 @@
-fn main() -> anyhow::Result<()> {
-    eprintln!("dj-engine: not yet implemented (see plan tasks)");
-    std::process::exit(2);
+use anyhow::Context;
+use clap::Parser;
+use rand::seq::SliceRandom;
+use tracing::{info, warn};
+
+use dj_engine::buffer::{make_ring, Consumer};
+use dj_engine::config::{Cli, IcecastEnv, LogFormat};
+use dj_engine::energy_avg::EnergyTarget;
+use dj_engine::error::EngineError;
+use dj_engine::ffmpeg::decoder::PlayingDecoder;
+use dj_engine::ffmpeg::encoder::EncoderConfig;
+use dj_engine::ffmpeg::SAMPLE_RATE;
+use dj_engine::icecast_meta::{self, MetadataConfig};
+use dj_engine::library::{load_library, LoadedTrack};
+use dj_engine::logging_setup;
+use dj_engine::mixer::play_until_transition_and_crossfade;
+use dj_engine::recency::RecencyRing;
+use dj_engine::selector::Selector;
+use dj_engine::supervisor;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    logging_setup::init(matches!(cli.log_format, LogFormat::Json));
+
+    let ice = IcecastEnv::from_env().map_err(|e| anyhow::anyhow!("config: {e}"))?;
+
+    info!(sidecars = %cli.sidecars.display(), "loading library");
+    let library = load_library(&cli.sidecars).context("load_library")?;
+    info!(count = library.len(), "library loaded");
+
+    let encoder_cfg = EncoderConfig {
+        icecast_url: ice.url.clone(),
+        user: ice.user.clone(),
+        password: ice.password.clone(),
+        format: ice.format,
+        bitrate: ice.bitrate.clone(),
+    };
+    let metadata_cfg = MetadataConfig {
+        admin_url: ice.admin_url.clone(),
+        admin_user: ice.admin_user.clone(),
+        admin_password: ice.admin_password.clone(),
+        mount: ice.mount.clone(),
+    };
+
+    let encoder = supervisor::spawn_with_retries(&encoder_cfg).await?;
+
+    // 10 second ring buffer.
+    let ring_capacity = (SAMPLE_RATE as usize) * 2 * 10;
+    let (mut producer, mut consumer) = make_ring(ring_capacity);
+
+    // Take stdin out of the encoder for the writer task.
+    // The encoder child is kept alive by the moved struct; we drop its handle below
+    // intentionally — encoder stdout/stderr piping is handled by ffmpeg itself.
+    let writer_stdin = encoder.stdin;
+    let _encoder_child = encoder.child; // keep child alive until end of main
+
+    // Writer task: ring -> encoder stdin.
+    let writer_task = tokio::spawn(async move {
+        let mut writer = writer_stdin;
+        let mut buf = vec![0f32; 4096];
+        use tokio::io::AsyncWriteExt;
+        loop {
+            let n = consumer.pop_slice(&mut buf);
+            if n == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                continue;
+            }
+            let mut bytes = Vec::with_capacity(n * 4);
+            for s in &buf[..n] {
+                bytes.extend_from_slice(&s.to_le_bytes());
+            }
+            if let Err(e) = writer.write_all(&bytes).await {
+                warn!(error = %e, "writer error; exiting writer task");
+                break;
+            }
+        }
+    });
+
+    // Seed track + initial decoder.
+    let seed = pick_seed(&library, cli.seed_track.as_deref());
+    info!(seed = %seed.sidecar.source_path, "seed track");
+    let seed_path: std::path::PathBuf = seed.sidecar.source_path.clone().into();
+    let mut current = seed;
+    let mut decoder = PlayingDecoder::spawn(
+        &seed_path,
+        current.sidecar.cue_in_seconds.unwrap_or(0.0),
+        current.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY),
+    )
+    .await
+    .map_err(|e: EngineError| anyhow::anyhow!(e))?;
+
+    let mut recency = RecencyRing::new(20);
+    recency.record(current.sidecar.source_path.clone());
+    let mut energy = EnergyTarget::new(current.sidecar.energy_mean.unwrap_or(0.5));
+    let http = reqwest::Client::new();
+
+    icecast_meta::update_now_playing(&http, &metadata_cfg, &current.sidecar.source_path).await;
+
+    // Main loop.
+    loop {
+        let next_track = {
+            let mut sel = Selector::new(&library, &recency, energy.current());
+            match sel.pick_next(&current) {
+                Some(t) => t.clone(),
+                None => {
+                    warn!("selector returned nothing; ending set");
+                    break;
+                }
+            }
+        };
+
+        // Crossfade.
+        decoder = play_until_transition_and_crossfade(
+            &current,
+            &next_track,
+            &mut decoder,
+            &mut producer,
+        )
+        .await
+        .map_err(|e: EngineError| anyhow::anyhow!(e))?;
+
+        recency.record(next_track.sidecar.source_path.clone());
+        energy.advance();
+        icecast_meta::update_now_playing(&http, &metadata_cfg, &next_track.sidecar.source_path)
+            .await;
+        current = next_track;
+    }
+
+    let _ = writer_task.await;
+    Ok(())
+}
+
+fn pick_seed(library: &[LoadedTrack], requested: Option<&str>) -> LoadedTrack {
+    if let Some(want) = requested {
+        if let Some(t) = library.iter().find(|t| t.sidecar.source_path.contains(want)) {
+            return t.clone();
+        }
+        warn!(seed = %want, "seed track not found; falling back to mid-energy random");
+    }
+    let candidates: Vec<&LoadedTrack> = library
+        .iter()
+        .filter(|t| {
+            let e = t.sidecar.energy_mean.unwrap_or(0.5);
+            t.sidecar.is_mixable == Some(true) && (0.3..=0.6).contains(&e)
+        })
+        .collect();
+    let chosen = candidates
+        .choose(&mut rand::thread_rng())
+        .copied()
+        .unwrap_or(&library[0]);
+    chosen.clone()
 }
