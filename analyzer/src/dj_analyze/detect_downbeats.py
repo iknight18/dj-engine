@@ -36,8 +36,8 @@ def detect_downbeats(
 
 def _madmom_downbeats(audio: np.ndarray, sr: int) -> DownbeatResult:
     # Imported lazily so absence of madmom doesn't break imports of this module.
-    from madmom.features.beats import DBNDownBeatTrackingProcessor
-    from madmom.features.downbeats import RNNDownBeatProcessor
+    from madmom.features.beats import DBNDownBeatTrackingProcessor  # type: ignore[import-not-found]
+    from madmom.features.downbeats import RNNDownBeatProcessor  # type: ignore[import-not-found]
 
     rnn = RNNDownBeatProcessor()
     dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)

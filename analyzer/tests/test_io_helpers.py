@@ -6,7 +6,6 @@ import pytest
 
 from dj_analyze.io_helpers import discover_audio_files, sidecar_path_for
 
-
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".wav", ".ogg", ".opus"}
 
 

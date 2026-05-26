@@ -62,7 +62,7 @@ def detect_key(audio: np.ndarray, sr: int) -> KeyResult:
 
 
 def _essentia_key(audio: np.ndarray, sr: int) -> KeyResult:
-    from essentia.standard import KeyExtractor
+    from essentia.standard import KeyExtractor  # type: ignore[import-not-found]
 
     extractor = KeyExtractor()
     pitch, mode, strength = extractor(audio.astype(np.float32))

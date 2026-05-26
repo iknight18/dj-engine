@@ -29,5 +29,7 @@ def test_madmom_path_or_fallback_returns_valid_result() -> None:
     audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
     beats = [0.0 + 0.5 * i for i in range(16)]
     result = detect_downbeats(audio, sr, beats=beats)
-    assert all(d1 <= d2 for d1, d2 in zip(result.downbeats, result.downbeats[1:]))
+    assert all(
+        d1 <= d2 for d1, d2 in zip(result.downbeats, result.downbeats[1:], strict=False)
+    )
     assert result.method in {"madmom", "fallback_4_4"}
