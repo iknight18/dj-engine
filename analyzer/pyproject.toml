@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dj_analyze"
+version = "0.1.0"
+description = "Analyzer for DJ Engine — emits sidecar JSONs from a music directory."
+requires-python = ">=3.11"
+dependencies = [
+    # numpy upper bound (<2.1) was tied to madmom/essentia compatibility. Both are disabled
+    # below for this Python/OS, and no numpy<2.1 wheels exist for Python 3.13 on Windows,
+    # so the cap is lifted here. Re-pin if/when reintroducing those native deps.
+    "numpy>=1.26",
+    "librosa>=0.10.2",
+    "soundfile>=0.12.1",
+    "audioread>=3.0.1",
+    "rich>=13.7.0",
+    # essentia: no wheel for Python 3.13 / Windows on PyPI (only older 2.1b6.dev234 available, < pinned 1110).
+    # Disabled here; later tasks must provide a librosa-based fallback per plan.
+    # "essentia>=2.1b6.dev1110; platform_system != 'Darwin' or platform_machine != 'arm64'",
+    # madmom: requires Cython build + uses long-removed numpy APIs; broken on Python 3.12+ / numpy 2.
+    # Disabled here; later tasks must provide a librosa-based fallback per plan.
+    # "madmom>=0.16.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "jsonschema>=4.21",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "scipy>=1.13",
+]
+
+[project.scripts]
+dj-analyze = "dj_analyze.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dj_analyze"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+disallow_untyped_decorators = false
+warn_return_any = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
