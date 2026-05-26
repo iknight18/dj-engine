@@ -25,18 +25,42 @@ struct Constraints {
 
 impl<'a> Selector<'a> {
     pub fn new(library: &'a [LoadedTrack], recency: &'a RecencyRing, target_energy: f64) -> Self {
-        Self { library, recency, target_energy }
+        Self {
+            library,
+            recency,
+            target_energy,
+        }
     }
 
     /// Pick the next track. Walks the fallback chain until something matches.
     pub fn pick_next(&mut self, current: &LoadedTrack) -> Option<&'a LoadedTrack> {
         let chain = [
-            Constraints { bpm_window: BPM_RELAX_TIGHT, require_key_match: true,  require_mixable: true  },
-            Constraints { bpm_window: BPM_RELAX_TIGHT, require_key_match: false, require_mixable: true  },
-            Constraints { bpm_window: BPM_RELAX_LOOSE, require_key_match: false, require_mixable: true  },
-            Constraints { bpm_window: BPM_RELAX_LOOSE, require_key_match: false, require_mixable: false },
+            Constraints {
+                bpm_window: BPM_RELAX_TIGHT,
+                require_key_match: true,
+                require_mixable: true,
+            },
+            Constraints {
+                bpm_window: BPM_RELAX_TIGHT,
+                require_key_match: false,
+                require_mixable: true,
+            },
+            Constraints {
+                bpm_window: BPM_RELAX_LOOSE,
+                require_key_match: false,
+                require_mixable: true,
+            },
+            Constraints {
+                bpm_window: BPM_RELAX_LOOSE,
+                require_key_match: false,
+                require_mixable: false,
+            },
             // Final fallback: accept anything that's not the current track and not recent.
-            Constraints { bpm_window: f64::INFINITY, require_key_match: false, require_mixable: false },
+            Constraints {
+                bpm_window: f64::INFINITY,
+                require_key_match: false,
+                require_mixable: false,
+            },
         ];
         for constraints in &chain {
             let mut scored: Vec<(f64, &'a LoadedTrack)> = self
@@ -45,11 +69,8 @@ impl<'a> Selector<'a> {
                 .collect();
             if !scored.is_empty() {
                 scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-                let top: Vec<&(f64, &LoadedTrack)> =
-                    scored.iter().take(TOP_K).collect();
-                let chosen = top
-                    .choose(&mut rand::thread_rng())
-                    .copied()?;
+                let top: Vec<&(f64, &LoadedTrack)> = scored.iter().take(TOP_K).collect();
+                let chosen = top.choose(&mut rand::thread_rng()).copied()?;
                 return Some(chosen.1);
             }
         }
@@ -62,11 +83,7 @@ impl<'a> Selector<'a> {
         c: Constraints,
     ) -> impl Iterator<Item = &'a LoadedTrack> + '_ {
         let current_bpm = current.sidecar.bpm.unwrap_or(120.0);
-        let current_key = current
-            .sidecar
-            .key
-            .as_deref()
-            .and_then(CamelotKey::parse);
+        let current_key = current.sidecar.key.as_deref().and_then(CamelotKey::parse);
         let current_path = current.sidecar.source_path.clone();
 
         self.library.iter().filter(move |t| {
@@ -117,8 +134,7 @@ impl<'a> Selector<'a> {
         };
 
         let cand_energy = candidate.sidecar.energy_mean.unwrap_or(0.5);
-        let energy_score =
-            (1.0 - (cand_energy - self.target_energy).abs() / 0.15).max(0.0);
+        let energy_score = (1.0 - (cand_energy - self.target_energy).abs() / 0.15).max(0.0);
 
         bpm_score * 1.0 + key_score * 1.0 + energy_score * 0.5
     }

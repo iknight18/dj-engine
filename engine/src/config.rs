@@ -7,7 +7,11 @@ use clap::Parser;
 use crate::ffmpeg::encoder::EncoderFormat;
 
 #[derive(Debug, Parser)]
-#[command(name = "dj-engine", version, about = "Stream a beatmatched mix to Icecast.")]
+#[command(
+    name = "dj-engine",
+    version,
+    about = "Stream a beatmatched mix to Icecast."
+)]
 pub struct Cli {
     /// Directory containing analyzer sidecar JSONs.
     #[arg(long)]
@@ -47,8 +51,8 @@ pub struct IcecastEnv {
 
 impl IcecastEnv {
     pub fn from_env() -> Result<Self, String> {
-        let url = std::env::var("ICECAST_URL")
-            .map_err(|_| "ICECAST_URL is required".to_string())?;
+        let url =
+            std::env::var("ICECAST_URL").map_err(|_| "ICECAST_URL is required".to_string())?;
         let password = std::env::var("ICECAST_PASSWORD")
             .map_err(|_| "ICECAST_PASSWORD is required".to_string())?;
         let user = std::env::var("ICECAST_USER").unwrap_or_else(|_| "source".into());
@@ -63,10 +67,18 @@ impl IcecastEnv {
             .or_else(|| derive_admin_url(&url))
             .ok_or("ICECAST_ADMIN_URL could not be derived from ICECAST_URL")?;
         let admin_user = std::env::var("ICECAST_ADMIN_USER").unwrap_or_else(|_| "admin".into());
-        let admin_password = std::env::var("ICECAST_ADMIN_PASSWORD").unwrap_or_else(|_| password.clone());
+        let admin_password =
+            std::env::var("ICECAST_ADMIN_PASSWORD").unwrap_or_else(|_| password.clone());
         Ok(Self {
-            url, user, password, format, bitrate,
-            admin_url, admin_user, admin_password, mount,
+            url,
+            user,
+            password,
+            format,
+            bitrate,
+            admin_url,
+            admin_user,
+            admin_password,
+            mount,
         })
     }
 }

@@ -13,11 +13,7 @@ pub fn equal_power_curve(t: f64) -> (f64, f64) {
 
 /// Crossfade two interleaved-stereo f32 PCM buffers over `crossfade_frames` frames.
 /// Returns a buffer the same length as the inputs.
-pub fn mix_crossfade(
-    outgoing: &[f32],
-    incoming: &[f32],
-    crossfade_frames: usize,
-) -> Vec<f32> {
+pub fn mix_crossfade(outgoing: &[f32], incoming: &[f32], crossfade_frames: usize) -> Vec<f32> {
     let len = outgoing.len().min(incoming.len());
     let mut out = Vec::with_capacity(len);
     let crossfade_samples = crossfade_frames * 2;

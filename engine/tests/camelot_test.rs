@@ -39,8 +39,8 @@ fn wraps_around_12_to_1() {
 
 #[test]
 fn relative_major_minor_is_match() {
-    let a = CamelotKey::parse("8A").unwrap();    // A minor
-    let b = CamelotKey::parse("8B").unwrap();    // C major
+    let a = CamelotKey::parse("8A").unwrap(); // A minor
+    let b = CamelotKey::parse("8B").unwrap(); // C major
     assert_eq!(a.compatibility(&b), KeyMatch::Relative);
 }
 

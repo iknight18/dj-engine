@@ -19,28 +19,46 @@ pub async fn decode_stretched(
     ratio: f64,
 ) -> Result<Vec<f32>> {
     if ratio <= 0.0 {
-        return Err(EngineError::Ffmpeg(format!("invalid atempo ratio: {ratio}")));
+        return Err(EngineError::Ffmpeg(format!(
+            "invalid atempo ratio: {ratio}"
+        )));
     }
     let filter = atempo_chain(ratio);
 
     let mut cmd = Command::new("ffmpeg");
     cmd.arg("-hide_banner")
-        .arg("-loglevel").arg("error")
-        .arg("-ss").arg(format!("{:.3}", start_seconds))
-        .arg("-to").arg(format!("{:.3}", end_seconds))
-        .arg("-i").arg(path)
-        .arg("-af").arg(filter)
-        .arg("-f").arg("f32le")
-        .arg("-ar").arg(SAMPLE_RATE.to_string())
-        .arg("-ac").arg(CHANNELS.to_string())
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-ss")
+        .arg(format!("{:.3}", start_seconds))
+        .arg("-to")
+        .arg(format!("{:.3}", end_seconds))
+        .arg("-i")
+        .arg(path)
+        .arg("-af")
+        .arg(filter)
+        .arg("-f")
+        .arg("f32le")
+        .arg("-ar")
+        .arg(SAMPLE_RATE.to_string())
+        .arg("-ac")
+        .arg(CHANNELS.to_string())
         .arg("-")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
-    let mut stdout = child.stdout.take().ok_or_else(|| EngineError::Ffmpeg("no stdout".into()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| EngineError::Ffmpeg("no stdout".into()))?;
     let mut buf = Vec::new();
-    stdout.read_to_end(&mut buf).await.map_err(EngineError::Io)?;
+    stdout
+        .read_to_end(&mut buf)
+        .await
+        .map_err(EngineError::Io)?;
 
     let status = child.wait().await.map_err(EngineError::Io)?;
     if !status.success() {

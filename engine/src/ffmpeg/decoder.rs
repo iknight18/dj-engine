@@ -20,18 +20,27 @@ impl PlayingDecoder {
     pub async fn spawn(path: &Path, start_seconds: f64, end_seconds: f64) -> Result<Self> {
         let mut cmd = Command::new("ffmpeg");
         cmd.arg("-hide_banner")
-            .arg("-loglevel").arg("error")
-            .arg("-ss").arg(format!("{:.3}", start_seconds))
-            .arg("-to").arg(format!("{:.3}", end_seconds))
-            .arg("-i").arg(path)
-            .arg("-f").arg("f32le")
-            .arg("-ar").arg(SAMPLE_RATE.to_string())
-            .arg("-ac").arg(CHANNELS.to_string())
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-ss")
+            .arg(format!("{:.3}", start_seconds))
+            .arg("-to")
+            .arg(format!("{:.3}", end_seconds))
+            .arg("-i")
+            .arg(path)
+            .arg("-f")
+            .arg("f32le")
+            .arg("-ar")
+            .arg(SAMPLE_RATE.to_string())
+            .arg("-ac")
+            .arg(CHANNELS.to_string())
             .arg("-")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
         let stdout = child
             .stdout
             .take()
@@ -46,7 +55,10 @@ impl PlayingDecoder {
         let mut buf = vec![0u8; bytes_needed];
         let mut filled = 0;
         while filled < bytes_needed {
-            let n = self.stdout.read(&mut buf[filled..]).await
+            let n = self
+                .stdout
+                .read(&mut buf[filled..])
+                .await
                 .map_err(EngineError::Io)?;
             if n == 0 {
                 break;

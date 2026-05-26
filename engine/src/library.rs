@@ -16,7 +16,10 @@ pub struct LoadedTrack {
 
 pub fn load_library(sidecars_dir: &Path) -> Result<Vec<LoadedTrack>> {
     let mut tracks = Vec::new();
-    for entry in WalkDir::new(sidecars_dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(sidecars_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }

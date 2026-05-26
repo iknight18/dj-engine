@@ -5,17 +5,13 @@ use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct MetadataConfig {
-    pub admin_url: String,   // e.g., http://host:27897
-    pub admin_user: String,  // e.g., "admin"
+    pub admin_url: String,  // e.g., http://host:27897
+    pub admin_user: String, // e.g., "admin"
     pub admin_password: String,
-    pub mount: String,       // e.g., "/dj.mp3"
+    pub mount: String, // e.g., "/dj.mp3"
 }
 
-pub async fn update_now_playing(
-    client: &Client,
-    cfg: &MetadataConfig,
-    song: &str,
-) {
+pub async fn update_now_playing(client: &Client, cfg: &MetadataConfig, song: &str) {
     let url = format!(
         "{}/admin/metadata?mount={}&mode=updinfo&song={}",
         cfg.admin_url.trim_end_matches('/'),

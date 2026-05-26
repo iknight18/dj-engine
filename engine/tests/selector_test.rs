@@ -29,7 +29,10 @@ fn track(path: &str, bpm: f64, key: &str, energy: f64, mixable: bool) -> LoadedT
         is_mixable: Some(mixable),
         mixable_reasons: vec![],
     };
-    LoadedTrack { sidecar_path: path.into(), sidecar: sc }
+    LoadedTrack {
+        sidecar_path: path.into(),
+        sidecar: sc,
+    }
 }
 
 #[test]

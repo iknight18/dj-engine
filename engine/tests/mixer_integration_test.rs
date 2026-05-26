@@ -21,8 +21,12 @@ async fn crossfade_contains_both_signals_in_middle() {
         return;
     }
 
-    let mut decoder_a = PlayingDecoder::spawn(&a, 1.0, 5.0).await.expect("decoder a");
-    let mut decoder_b = PlayingDecoder::spawn(&b, 1.0, 5.0).await.expect("decoder b");
+    let mut decoder_a = PlayingDecoder::spawn(&a, 1.0, 5.0)
+        .await
+        .expect("decoder a");
+    let mut decoder_b = PlayingDecoder::spawn(&b, 1.0, 5.0)
+        .await
+        .expect("decoder b");
 
     let a_pcm = decoder_a.read_frames(44_100).await.expect("pcm a"); // 1s
     let b_pcm = decoder_b.read_frames(44_100).await.expect("pcm b");
@@ -34,5 +38,8 @@ async fn crossfade_contains_both_signals_in_middle() {
     // detect "both signals present and crossfade gains active" rather than full-scale.
     let mid = &mixed[mixed.len() / 4..3 * mixed.len() / 4];
     let rms: f64 = (mid.iter().map(|s| (*s as f64).powi(2)).sum::<f64>() / mid.len() as f64).sqrt();
-    assert!(rms > 0.01, "RMS in crossfade region was {rms} — expected > 0.01");
+    assert!(
+        rms > 0.01,
+        "RMS in crossfade region was {rms} — expected > 0.01"
+    );
 }

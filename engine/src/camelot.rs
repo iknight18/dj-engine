@@ -2,7 +2,7 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CamelotKey {
-    pub number: u8,  // 1..=12
+    pub number: u8, // 1..=12
     pub letter: Letter,
 }
 
@@ -15,8 +15,8 @@ pub enum Letter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyMatch {
     Identical,
-    Adjacent,   // +/-1 step on the wheel, same letter
-    Relative,   // same number, different letter
+    Adjacent, // +/-1 step on the wheel, same letter
+    Relative, // same number, different letter
     None,
 }
 
@@ -24,9 +24,9 @@ impl KeyMatch {
     pub fn score(self) -> f64 {
         match self {
             KeyMatch::Identical => 1.0,
-            KeyMatch::Adjacent  => 0.7,
-            KeyMatch::Relative  => 0.6,
-            KeyMatch::None      => 0.0,
+            KeyMatch::Adjacent => 0.7,
+            KeyMatch::Relative => 0.6,
+            KeyMatch::None => 0.0,
         }
     }
 }
@@ -67,6 +67,6 @@ impl CamelotKey {
 }
 
 fn circular_distance(a: u8, b: u8, modulo: u8) -> u8 {
-    let raw = if a >= b { a - b } else { b - a };
+    let raw = a.abs_diff(b);
     raw.min(modulo - raw)
 }

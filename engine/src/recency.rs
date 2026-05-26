@@ -10,7 +10,10 @@ pub struct RecencyRing {
 
 impl RecencyRing {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity, items: VecDeque::with_capacity(capacity.max(1)) }
+        Self {
+            capacity,
+            items: VecDeque::with_capacity(capacity.max(1)),
+        }
     }
 
     pub fn record(&mut self, id: String) {

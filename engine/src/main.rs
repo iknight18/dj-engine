@@ -111,14 +111,10 @@ async fn main() -> anyhow::Result<()> {
         };
 
         // Crossfade.
-        decoder = play_until_transition_and_crossfade(
-            &current,
-            &next_track,
-            &mut decoder,
-            &mut producer,
-        )
-        .await
-        .map_err(|e: EngineError| anyhow::anyhow!(e))?;
+        decoder =
+            play_until_transition_and_crossfade(&current, &next_track, &mut decoder, &mut producer)
+                .await
+                .map_err(|e: EngineError| anyhow::anyhow!(e))?;
 
         recency.record(next_track.sidecar.source_path.clone());
         energy.advance();
@@ -133,7 +129,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn pick_seed(library: &[LoadedTrack], requested: Option<&str>) -> LoadedTrack {
     if let Some(want) = requested {
-        if let Some(t) = library.iter().find(|t| t.sidecar.source_path.contains(want)) {
+        if let Some(t) = library
+            .iter()
+            .find(|t| t.sidecar.source_path.contains(want))
+        {
             return t.clone();
         }
         warn!(seed = %want, "seed track not found; falling back to mid-energy random");

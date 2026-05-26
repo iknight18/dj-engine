@@ -33,24 +33,37 @@ impl Encoder {
     pub async fn spawn(cfg: &EncoderConfig) -> Result<Self> {
         let mut cmd = Command::new("ffmpeg");
         cmd.arg("-hide_banner")
-            .arg("-loglevel").arg("info")
-            .arg("-f").arg("f32le")
-            .arg("-ar").arg(SAMPLE_RATE.to_string())
-            .arg("-ac").arg(CHANNELS.to_string())
-            .arg("-i").arg("pipe:0");
+            .arg("-loglevel")
+            .arg("info")
+            .arg("-f")
+            .arg("f32le")
+            .arg("-ar")
+            .arg(SAMPLE_RATE.to_string())
+            .arg("-ac")
+            .arg(CHANNELS.to_string())
+            .arg("-i")
+            .arg("pipe:0");
 
         match cfg.format {
             EncoderFormat::Mp3 => {
-                cmd.arg("-c:a").arg("libmp3lame")
-                    .arg("-b:a").arg(&cfg.bitrate)
-                    .arg("-content_type").arg("audio/mpeg")
-                    .arg("-f").arg("mp3");
+                cmd.arg("-c:a")
+                    .arg("libmp3lame")
+                    .arg("-b:a")
+                    .arg(&cfg.bitrate)
+                    .arg("-content_type")
+                    .arg("audio/mpeg")
+                    .arg("-f")
+                    .arg("mp3");
             }
             EncoderFormat::Opus => {
-                cmd.arg("-c:a").arg("libopus")
-                    .arg("-b:a").arg(&cfg.bitrate)
-                    .arg("-content_type").arg("audio/ogg")
-                    .arg("-f").arg("ogg");
+                cmd.arg("-c:a")
+                    .arg("libopus")
+                    .arg("-b:a")
+                    .arg(&cfg.bitrate)
+                    .arg("-content_type")
+                    .arg("audio/ogg")
+                    .arg("-f")
+                    .arg("ogg");
             }
         }
 
@@ -60,8 +73,13 @@ impl Encoder {
             .stdout(Stdio::null())
             .stderr(Stdio::inherit());
 
-        let mut child = cmd.spawn().map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
-        let stdin = child.stdin.take().ok_or_else(|| EngineError::Ffmpeg("no stdin".into()))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| EngineError::Ffmpeg("no stdin".into()))?;
         Ok(Self { child, stdin })
     }
 
@@ -70,7 +88,10 @@ impl Encoder {
         for s in samples {
             bytes.extend_from_slice(&s.to_le_bytes());
         }
-        self.stdin.write_all(&bytes).await.map_err(EngineError::Io)?;
+        self.stdin
+            .write_all(&bytes)
+            .await
+            .map_err(EngineError::Io)?;
         Ok(())
     }
 }
