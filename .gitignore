@@ -35,3 +35,4 @@ data/
 # Local Icecast / dev artifacts
 *.log
 analyzed/
+analyzed-*/

@@ -9,6 +9,20 @@ Two-program system that DJs a directory of audio files and streams the live mix 
 
 See `docs/superpowers/specs/` for the design and `docs/superpowers/plans/` for implementation plans.
 
-## Dev quickstart (filled in over the course of the plans)
+## Dev quickstart
 
-TBD — see plan 02-analyzer.md and plan 03-engine.md.
+### Analyzer
+
+```bash
+cd analyzer
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+dj-analyze C:/path/to/music ./analyzed
+```
+
+Each track in `C:/path/to/music` (recursive) gets a `.json` sidecar mirrored under `./analyzed`. Re-running is cheap (only new/changed tracks re-analyzed). See `schema/sidecar.schema.json` for the output format.
+
+### Engine
+
+See plan `docs/superpowers/plans/2026-05-26-dj-engine-02-engine.md`.
