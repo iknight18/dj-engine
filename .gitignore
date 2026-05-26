@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Rust
+target/
+Cargo.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build / dist
+dist/
+build/
+
+# Generated audio fixtures (regenerated from generate_fixtures.py)
+# Keep them committed for CI reproducibility — remove this line if you want to regenerate locally
+# analyzer/tests/fixtures/*.wav
+
+# Local Icecast / dev artifacts
+*.log
+analyzed/
