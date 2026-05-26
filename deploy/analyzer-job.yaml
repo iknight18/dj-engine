@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dj-analyze
+  labels:
+    app: dj-engine
+    component: analyzer
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: dj-engine
+        component: analyzer
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: analyzer
+          image: dj-analyzer:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - /music
+            - /analyzed
+            - --workers
+            - "4"
+            - --log-format
+            - json
+          volumeMounts:
+            - name: music
+              mountPath: /music
+              readOnly: true
+            - name: analyzed
+              mountPath: /analyzed
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+      volumes:
+        - name: music
+          persistentVolumeClaim:
+            claimName: dj-music
+        - name: analyzed
+          persistentVolumeClaim:
+            claimName: dj-analyzed
