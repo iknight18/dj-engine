@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dj-engine/schema/sidecar.schema.json",
+  "title": "DJ Engine Sidecar",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "analyzer_version",
+    "source_path",
+    "source_mtime",
+    "source_size_bytes"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "analyzer_version": { "type": "string" },
+    "source_path": { "type": "string" },
+    "source_mtime": { "type": "number" },
+    "source_size_bytes": { "type": "integer", "minimum": 0 },
+    "error": { "type": "string" },
+
+    "duration_seconds": { "type": "number", "minimum": 0 },
+    "sample_rate": { "type": "integer", "minimum": 1 },
+
+    "bpm": { "type": "number", "minimum": 30, "maximum": 250 },
+    "bpm_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "beats_seconds": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 }
+    },
+    "downbeats_seconds": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 }
+    },
+
+    "key": {
+      "type": "string",
+      "pattern": "^(1[0-2]|[1-9])[AB]$"
+    },
+    "key_label": { "type": "string" },
+    "key_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+
+    "energy_curve": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0, "maximum": 1 }
+    },
+    "energy_mean": { "type": "number", "minimum": 0, "maximum": 1 },
+
+    "cue_in_seconds": { "type": "number", "minimum": 0 },
+    "cue_out_seconds": { "type": "number", "minimum": 0 },
+    "intro_end_seconds": { "type": "number", "minimum": 0 },
+    "outro_start_seconds": { "type": "number", "minimum": 0 },
+
+    "is_mixable": { "type": "boolean" },
+    "mixable_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "bpm_low_confidence",
+          "bpm_variable",
+          "no_clear_downbeat",
+          "too_short",
+          "key_low_confidence"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "not": { "required": ["error"] } },
+      "then": {
+        "required": [
+          "duration_seconds",
+          "sample_rate",
+          "bpm",
+          "bpm_confidence",
+          "beats_seconds",
+          "downbeats_seconds",
+          "key",
+          "key_label",
+          "key_confidence",
+          "energy_curve",
+          "energy_mean",
+          "cue_in_seconds",
+          "cue_out_seconds",
+          "intro_end_seconds",
+          "outro_start_seconds",
+          "is_mixable",
+          "mixable_reasons"
+        ]
+      }
+    }
+  ]
+}
