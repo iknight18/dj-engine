@@ -29,6 +29,9 @@ build/
 # Keep them committed for CI reproducibility — remove this line if you want to regenerate locally
 # analyzer/tests/fixtures/*.wav
 
+# User's local test audio (not part of source)
+data/
+
 # Local Icecast / dev artifacts
 *.log
 analyzed/
