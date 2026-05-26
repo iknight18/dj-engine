@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dj-engine
+  labels:
+    app: dj-engine
+    component: engine
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: dj-engine
+      component: engine
+  template:
+    metadata:
+      labels:
+        app: dj-engine
+        component: engine
+    spec:
+      containers:
+        - name: engine
+          image: dj-engine:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --sidecars
+            - /analyzed
+            - --music-root
+            - /music
+            - --log-format
+            - json
+          env:
+            - name: ICECAST_URL
+              valueFrom:
+                secretKeyRef:
+                  name: icecast-credentials
+                  key: ICECAST_URL
+            - name: ICECAST_USER
+              valueFrom:
+                secretKeyRef:
+                  name: icecast-credentials
+                  key: ICECAST_USER
+            - name: ICECAST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: icecast-credentials
+                  key: ICECAST_PASSWORD
+            - name: ICECAST_FORMAT
+              value: "mp3"
+            - name: ICECAST_BITRATE
+              value: "192k"
+          volumeMounts:
+            - name: analyzed
+              mountPath: /analyzed
+              readOnly: true
+            - name: music
+              mountPath: /music
+              readOnly: true
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: analyzed
+          persistentVolumeClaim:
+            claimName: dj-analyzed
+        - name: music
+          persistentVolumeClaim:
+            claimName: dj-music
