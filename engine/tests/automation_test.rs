@@ -1,3 +1,5 @@
+use std::f64::consts::FRAC_1_SQRT_2;
+
 use dj_engine::automation::{Automation, AutomationQueue, AutomationTarget, Curve};
 use dj_engine::deck::DeckState;
 
@@ -30,7 +32,7 @@ fn curve_equal_power_in() {
     assert!((Curve::EqualPowerIn.eval(1.0) - 1.0).abs() < EPS);
     // sin(π/4) = sqrt(2)/2
     let mid = Curve::EqualPowerIn.eval(0.5);
-    assert!((mid - 0.7071067811865476).abs() < 1e-12);
+    assert!((mid - FRAC_1_SQRT_2).abs() < 1e-12);
 }
 
 #[test]
@@ -38,7 +40,7 @@ fn curve_equal_power_out() {
     assert!((Curve::EqualPowerOut.eval(0.0) - 1.0).abs() < EPS);
     assert!((Curve::EqualPowerOut.eval(1.0) - 0.0).abs() < EPS);
     let mid = Curve::EqualPowerOut.eval(0.5);
-    assert!((mid - 0.7071067811865476).abs() < 1e-12);
+    assert!((mid - FRAC_1_SQRT_2).abs() < 1e-12);
 }
 
 #[test]
@@ -92,7 +94,7 @@ fn sample_value_at_or_after_end_is_none() {
 fn sample_value_equal_power_in_midpoint() {
     let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::EqualPowerIn, 0, 100);
     let v = a.sample_value(50).unwrap();
-    assert!((v - 0.7071067811865476).abs() < 1e-12);
+    assert!((v - FRAC_1_SQRT_2).abs() < 1e-12);
 }
 
 #[test]

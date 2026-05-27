@@ -39,8 +39,10 @@ use crate::ffmpeg::{CHANNELS, SAMPLE_RATE};
 /// One PCM source within a deck. The deck plays through a queue of these,
 /// advancing to the next when the current is exhausted.
 pub(crate) enum DeckSource {
-    /// Long-running ffmpeg decoder (with or without atempo).
-    Decoder(PlayingDecoder),
+    /// Long-running ffmpeg decoder (with or without atempo). Boxed because
+    /// `PlayingDecoder` (containing tokio `Child` + `ChildStdout`) is large
+    /// compared to the `Buffer` variant.
+    Decoder(Box<PlayingDecoder>),
     /// Pre-decoded PCM (used for the chunked atempo ramp + splice tail).
     Buffer {
         pcm: Vec<f32>,
@@ -152,7 +154,7 @@ impl Deck {
             .unwrap_or(track.sidecar.duration_seconds.unwrap_or(f64::INFINITY));
         let decoder = PlayingDecoder::spawn(&path, source_start_seconds, cue_out).await?;
         self.sources.clear();
-        self.sources.push_back(DeckSource::Decoder(decoder));
+        self.sources.push_back(DeckSource::Decoder(Box::new(decoder)));
         self.state.source_path = Some(track.sidecar.source_path.clone());
         self.state.play_state = PlayState::Cueing;
         self.state.fader = 0.0;
@@ -340,7 +342,7 @@ impl Deck {
             pcm: ramp_pcm,
             offset_samples: 0,
         });
-        self.sources.push_back(DeckSource::Decoder(new_decoder));
+        self.sources.push_back(DeckSource::Decoder(Box::new(new_decoder)));
 
         // Update source position to reflect that we've now committed to
         // post-ramp playback.
