@@ -221,6 +221,10 @@ def _shorten_if_long_track(
 
     Returns the new cue_out (snapped down to nearest downbeat). On short tracks or
     degenerate cases (snapped value falls before cue_in), returns cue_out unchanged.
+
+    novelty_confidence is intentionally not consulted here: the [lo, hi] window is
+    tight enough that even a weak peak is a better anchor than always landing at the
+    floor, and the floor itself is a safe fallback when no peak is in range.
     """
     if duration <= LONG_TRACK_THRESHOLD_S:
         return cue_out

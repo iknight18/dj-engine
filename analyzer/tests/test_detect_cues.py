@@ -286,8 +286,9 @@ def test_short_track_unaffected_by_long_rule():
         rms_db_curve=_loud_rms_db_curve(dur),
         max_rms_db=-6.0,
     )
-    # cue_out from loudness anchor: last loud window <= 200 -> cue_out close to 200s.
-    assert cues["cue_out_seconds"] >= 180.0
+    # cue_out from loudness anchor: last loud window ends at t=200s, snapped DOWN to
+    # last downbeat at 120 BPM (bar period 2s) -> 198s.
+    assert abs(cues["cue_out_seconds"] - 198.0) <= 2.0
 
 
 def test_long_track_shortened_to_strongest_peak_in_window():
@@ -329,6 +330,27 @@ def test_long_track_no_peak_in_window_falls_to_floor():
         max_rms_db=-6.0,
     )
     assert abs(cues["cue_out_seconds"] - 330.0) <= 2.0
+
+
+def test_long_track_strongest_peak_beats_weaker_in_window():
+    """Two peaks both in [330, 420]: weaker earlier (340s, 0.4) and stronger later (390s, 0.9).
+
+    Expects 390s as the chosen cue_out — proving max-by-strength, not min, not earliest, not latest.
+    """
+    dur = 480.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(960)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 480,
+        bpm=120.0,
+        novelty_peaks=[60.0, 340.0, 390.0],
+        novelty_strengths=[0.5, 0.4, 0.9],
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    assert abs(cues["cue_out_seconds"] - 390.0) <= 2.0
 
 
 def test_long_track_outro_start_recomputed_against_new_cue_out():
