@@ -1,3 +1,4 @@
+use dj_engine::automation::{Automation, AutomationTarget, Curve};
 use dj_engine::deck::{Deck, DeckId, PlayState};
 use dj_engine::library::LoadedTrack;
 use dj_engine::sidecar::Sidecar;
@@ -120,4 +121,31 @@ async fn pull_playing_with_fader_zero_returns_silence() {
     // fader stays at 0.0 (its initial value)
     let pcm = d.pull(4096).await.unwrap();
     assert!(pcm.iter().all(|s| *s == 0.0));
+}
+
+#[tokio::test]
+async fn fader_linear_automation_ramps_signal() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.play();
+    // Schedule a Linear 0→1 fader over the first 8192 frames.
+    d.schedule(Automation {
+        target: AutomationTarget::Fader,
+        t_start_frames: 0,
+        t_end_frames: 8192,
+        from: 0.0,
+        to: 1.0,
+        curve: Curve::Linear,
+    });
+    // Pull half the ramp.
+    let first = d.pull(4096).await.unwrap();
+    let energy_first: f32 = first.iter().map(|s| s.abs()).sum();
+    // Pull the rest of the ramp.
+    let second = d.pull(4096).await.unwrap();
+    let energy_second: f32 = second.iter().map(|s| s.abs()).sum();
+    // Second half should be louder (ramp 0→1 means fader avg is ~0.25 then ~0.75).
+    assert!(
+        energy_second > energy_first * 2.0,
+        "expected second half louder; got first={energy_first} second={energy_second}"
+    );
 }

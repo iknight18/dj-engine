@@ -166,13 +166,16 @@ impl Deck {
     /// Pull `n_frames` of interleaved stereo PCM. Always advances `frame_cursor`
     /// by `n_frames`. Returns zeros for Stopped/Cueing.
     pub async fn pull(&mut self, n_frames: usize) -> Result<Vec<f32>> {
+        let start_cursor = self.frame_cursor;
         self.frame_cursor += n_frames as u64;
 
         if !matches!(self.state.play_state, PlayState::Playing) {
+            // Still tick the automation queue so future automations land correctly.
+            self.automations.step(self.frame_cursor, &mut self.state);
             return Ok(vec![0.0; n_frames * (CHANNELS as usize)]);
         }
 
-        // Drain from the source queue until we have n_frames or run dry.
+        // Drain source queue.
         let need_samples = n_frames * (CHANNELS as usize);
         let mut out: Vec<f32> = Vec::with_capacity(need_samples);
         while out.len() < need_samples {
@@ -183,7 +186,6 @@ impl Deck {
             let Some(source) = self.sources.front_mut() else { break };
             let chunk = source.pull(remaining_frames).await?;
             if chunk.is_empty() {
-                // Source ran dry; advance.
                 self.sources.pop_front();
                 continue;
             }
@@ -192,21 +194,25 @@ impl Deck {
                 self.sources.pop_front();
             }
         }
-        // Pad with silence if the queue is empty.
         if out.len() < need_samples {
             out.resize(need_samples, 0.0);
         }
 
-        // Apply current fader as a constant scalar over this tick. Task 13
-        // makes this per-sample by evaluating automations at sub-tick resolution.
-        let g = self.state.fader;
-        if g != 1.0 {
-            for s in out.iter_mut() {
-                *s *= g;
-            }
+        // Per-sample fader: evaluate automation queue at frame granularity
+        // (apply the same gain to L and R of each frame).
+        for f in 0..n_frames {
+            let cursor = start_cursor + f as u64;
+            self.automations.step(cursor, &mut self.state);
+            let g = self.state.fader;
+            let li = f * 2;
+            let ri = li + 1;
+            out[li] *= g;
+            out[ri] *= g;
         }
+        // Final step at frame_cursor (after the loop) to install any to-values
+        // for automations that finish exactly at frame_cursor.
+        self.automations.step(self.frame_cursor, &mut self.state);
 
-        // Advance source-position estimate (used by tempo respawns in Task 14).
         let emitted_seconds = n_frames as f64 / SAMPLE_RATE as f64;
         self.source_position_seconds += emitted_seconds * self.state.tempo;
 
