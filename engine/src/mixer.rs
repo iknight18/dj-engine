@@ -102,13 +102,24 @@ async fn execute_crossfade(
     }
 
     // 3) Mix.
+    let bass_hint = match (
+        outgoing.sidecar.band_energy_means.as_ref(),
+        incoming.sidecar.band_energy_means.as_ref(),
+    ) {
+        (Some(o), Some(i)) => Some(crate::crossfade::BassMixHint {
+            outgoing_bass_mean: o.bass,
+            incoming_bass_mean: i.bass,
+        }),
+        _ => None,
+    };
+
     let mixed = if plan.use_eq_swap {
         mix_crossfade_eq(
             &outgoing_tail,
             &incoming_head,
             crossfade_frames,
             SAMPLE_RATE as f64,
-            None,
+            bass_hint,
         )
     } else {
         mix_crossfade(&outgoing_tail, &incoming_head, crossfade_frames)
