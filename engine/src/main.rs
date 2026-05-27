@@ -158,8 +158,21 @@ async fn main() -> anyhow::Result<()> {
         );
         dj_engine::mixer::tick_until(&mut mixer, outro_deadline).await?;
 
-        // Arm the transition.
-        let choice = dj_engine::recipe::pick_recipe(&plan);
+        // Arm the transition. If --force-recipe was passed, override
+        // `pick_recipe`'s natural choice and log the divergence so the operator
+        // can see they're not seeing planner behavior.
+        let natural_choice = dj_engine::recipe::pick_recipe(&plan);
+        let choice = cli
+            .force_recipe
+            .map(|fr| fr.to_recipe_choice())
+            .unwrap_or(natural_choice);
+        if cli.force_recipe.is_some() && choice != natural_choice {
+            info!(
+                forced = ?choice,
+                natural = ?natural_choice,
+                "force_recipe override active"
+            );
+        }
         let recipe_name: &str = match choice {
             dj_engine::recipe::RecipeChoice::EqualPower => "equal_power_crossfade",
             dj_engine::recipe::RecipeChoice::HardCut => "hard_cut",

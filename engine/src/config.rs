@@ -28,12 +28,38 @@ pub struct Cli {
     /// `pretty` or `json` log output.
     #[arg(long, default_value = "pretty")]
     pub log_format: LogFormat,
+
+    /// Force every transition to use this recipe, overriding `pick_recipe`.
+    /// Mainly for manual testing of new recipes.
+    #[arg(long, value_enum)]
+    pub force_recipe: Option<ForceRecipe>,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum LogFormat {
     Pretty,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
+pub enum ForceRecipe {
+    EqualPower,
+    HardCut,
+    BassSwap,
+    FilterFade,
+    FilterKill,
+}
+
+impl ForceRecipe {
+    pub fn to_recipe_choice(self) -> crate::recipe::RecipeChoice {
+        match self {
+            ForceRecipe::EqualPower => crate::recipe::RecipeChoice::EqualPower,
+            ForceRecipe::HardCut => crate::recipe::RecipeChoice::HardCut,
+            ForceRecipe::BassSwap => crate::recipe::RecipeChoice::BassSwap,
+            ForceRecipe::FilterFade => crate::recipe::RecipeChoice::FilterFade,
+            ForceRecipe::FilterKill => crate::recipe::RecipeChoice::FilterKill,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
