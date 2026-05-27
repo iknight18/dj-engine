@@ -124,12 +124,19 @@ async fn execute_crossfade(
     };
 
     // Start spawning the new playing decoder NOW, in parallel with the stretched decode
-    // and the rest of the crossfade work. It starts SPLICE_FADE_MS BEFORE the predicted
-    // ramp end so the splice crossfade later overlaps source content (rather than mixing
-    // two different parts of the song, which sounds like a stutter).
+    // and the rest of the crossfade work. When the ramp+splice will run, the decoder
+    // starts SPLICE_FADE_MS BEFORE the predicted ramp end so the splice crossfade later
+    // overlaps source content rather than mixing two different parts of the song.
+    // When the ramp is skipped (same-BPM transitions), the splice never runs, so the
+    // 300 ms back-offset would just leave the new decoder replaying the last 300 ms of
+    // the post-roll. Spawn at post_roll_source_end exactly in that case for sample-
+    // contiguous handoff.
     let splice_fade_seconds = SPLICE_FADE_MS / 1000.0;
-    let new_start =
-        (post_roll_source_end + ramp_source_consumed - splice_fade_seconds).max(0.0);
+    let new_start = if ramp_chunks > 0 {
+        (post_roll_source_end + ramp_source_consumed - splice_fade_seconds).max(0.0)
+    } else {
+        post_roll_source_end.max(0.0)
+    };
     let cue_out = cue_out_inc;
     let new_decoder_task = {
         let path = incoming_path.clone();
