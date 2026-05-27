@@ -155,3 +155,139 @@ fn highpass_coeffs(sample_rate: f64, cutoff_hz: f64) -> (f64, f64, f64, f64, f64
     let a2 = (1.0 - alpha) / a0;
     (b0, b1, b2, a1, a2)
 }
+
+impl Biquad {
+    /// Low-shelf, RBJ cookbook. Shelf slope S = 1.0 (max flat, no overshoot).
+    pub fn low_shelf(sample_rate: f64, freq_hz: f64, gain_db: f64) -> Self {
+        let (b0, b1, b2, a1, a2) = low_shelf_coeffs(sample_rate, freq_hz, gain_db);
+        Self {
+            b0,
+            b1,
+            b2,
+            a1,
+            a2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    pub fn set_low_shelf(&mut self, sample_rate: f64, freq_hz: f64, gain_db: f64) {
+        let (b0, b1, b2, a1, a2) = low_shelf_coeffs(sample_rate, freq_hz, gain_db);
+        self.b0 = b0;
+        self.b1 = b1;
+        self.b2 = b2;
+        self.a1 = a1;
+        self.a2 = a2;
+    }
+
+    /// Peaking EQ band. RBJ cookbook.
+    pub fn peaking(sample_rate: f64, freq_hz: f64, q: f64, gain_db: f64) -> Self {
+        let (b0, b1, b2, a1, a2) = peaking_coeffs(sample_rate, freq_hz, q, gain_db);
+        Self {
+            b0,
+            b1,
+            b2,
+            a1,
+            a2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    pub fn set_peaking(&mut self, sample_rate: f64, freq_hz: f64, q: f64, gain_db: f64) {
+        let (b0, b1, b2, a1, a2) = peaking_coeffs(sample_rate, freq_hz, q, gain_db);
+        self.b0 = b0;
+        self.b1 = b1;
+        self.b2 = b2;
+        self.a1 = a1;
+        self.a2 = a2;
+    }
+
+    /// High-shelf, RBJ cookbook. Shelf slope S = 1.0.
+    pub fn high_shelf(sample_rate: f64, freq_hz: f64, gain_db: f64) -> Self {
+        let (b0, b1, b2, a1, a2) = high_shelf_coeffs(sample_rate, freq_hz, gain_db);
+        Self {
+            b0,
+            b1,
+            b2,
+            a1,
+            a2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    pub fn set_high_shelf(&mut self, sample_rate: f64, freq_hz: f64, gain_db: f64) {
+        let (b0, b1, b2, a1, a2) = high_shelf_coeffs(sample_rate, freq_hz, gain_db);
+        self.b0 = b0;
+        self.b1 = b1;
+        self.b2 = b2;
+        self.a1 = a1;
+        self.a2 = a2;
+    }
+}
+
+fn low_shelf_coeffs(sample_rate: f64, freq_hz: f64, gain_db: f64) -> (f64, f64, f64, f64, f64) {
+    let freq = freq_hz.clamp(1.0, sample_rate * 0.49);
+    let w0 = 2.0 * std::f64::consts::PI * freq / sample_rate;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let a_lin = 10.0_f64.powf(gain_db / 40.0);
+    // Shelf slope S = 1.0 → alpha = sin(w0)/2 * sqrt(2).
+    // (RBJ cookbook formula `sin(w0)/2 * sqrt((A + 1/A)*(1/S - 1) + 2)` collapses
+    //  to sin(w0)/2 * sqrt(2) when S = 1.0.)
+    let alpha = sin_w0 / 2.0 * 2.0_f64.sqrt();
+    let sqrt_a = a_lin.sqrt();
+    let a0 = (a_lin + 1.0) + (a_lin - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha;
+    let b0 = a_lin * ((a_lin + 1.0) - (a_lin - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha) / a0;
+    let b1 = 2.0 * a_lin * ((a_lin - 1.0) - (a_lin + 1.0) * cos_w0) / a0;
+    let b2 = a_lin * ((a_lin + 1.0) - (a_lin - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha) / a0;
+    let a1 = -2.0 * ((a_lin - 1.0) + (a_lin + 1.0) * cos_w0) / a0;
+    let a2 = ((a_lin + 1.0) + (a_lin - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha) / a0;
+    (b0, b1, b2, a1, a2)
+}
+
+fn peaking_coeffs(
+    sample_rate: f64,
+    freq_hz: f64,
+    q: f64,
+    gain_db: f64,
+) -> (f64, f64, f64, f64, f64) {
+    let freq = freq_hz.clamp(1.0, sample_rate * 0.49);
+    let w0 = 2.0 * std::f64::consts::PI * freq / sample_rate;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let a_lin = 10.0_f64.powf(gain_db / 40.0);
+    let alpha = sin_w0 / (2.0 * q.max(0.001));
+    let a0 = 1.0 + alpha / a_lin;
+    let b0 = (1.0 + alpha * a_lin) / a0;
+    let b1 = (-2.0 * cos_w0) / a0;
+    let b2 = (1.0 - alpha * a_lin) / a0;
+    let a1 = (-2.0 * cos_w0) / a0;
+    let a2 = (1.0 - alpha / a_lin) / a0;
+    (b0, b1, b2, a1, a2)
+}
+
+fn high_shelf_coeffs(sample_rate: f64, freq_hz: f64, gain_db: f64) -> (f64, f64, f64, f64, f64) {
+    let freq = freq_hz.clamp(1.0, sample_rate * 0.49);
+    let w0 = 2.0 * std::f64::consts::PI * freq / sample_rate;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let a_lin = 10.0_f64.powf(gain_db / 40.0);
+    // Shelf slope S = 1.0 → alpha = sin(w0)/2 * sqrt(2). See low_shelf_coeffs.
+    let alpha = sin_w0 / 2.0 * 2.0_f64.sqrt();
+    let sqrt_a = a_lin.sqrt();
+    let a0 = (a_lin + 1.0) - (a_lin - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha;
+    let b0 = a_lin * ((a_lin + 1.0) + (a_lin - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha) / a0;
+    let b1 = -2.0 * a_lin * ((a_lin - 1.0) + (a_lin + 1.0) * cos_w0) / a0;
+    let b2 = a_lin * ((a_lin + 1.0) + (a_lin - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha) / a0;
+    let a1 = 2.0 * ((a_lin - 1.0) - (a_lin + 1.0) * cos_w0) / a0;
+    let a2 = ((a_lin + 1.0) - (a_lin - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha) / a0;
+    (b0, b1, b2, a1, a2)
+}
