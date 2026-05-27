@@ -4,6 +4,15 @@ use std::f64::consts::FRAC_PI_2;
 
 use crate::eq::{apply_swept_filter, FilterKind};
 
+/// Hint passed to `mix_crossfade_eq` so the EQ swap can adapt to the bass
+/// content of the two clips. `outgoing_bass_mean` / `incoming_bass_mean` are
+/// the per-band-RMS bass means from the analyzer sidecar (0..1).
+#[derive(Debug, Clone, Copy)]
+pub struct BassMixHint {
+    pub outgoing_bass_mean: f64,
+    pub incoming_bass_mean: f64,
+}
+
 /// Return (outgoing_gain, incoming_gain) for `t` in [0, 1].
 /// `t = 0` -> full outgoing, no incoming. `t = 1` -> no outgoing, full incoming.
 pub fn equal_power_curve(t: f64) -> (f64, f64) {
@@ -32,7 +41,14 @@ pub fn mix_crossfade(outgoing: &[f32], incoming: &[f32], crossfade_frames: usize
     out
 }
 
-/// Equal-power crossfade with a 2-band EQ swap centered at the midpoint.
+/// Equal-power crossfade with a 2-band EQ swap.
+///
+/// Behavior is tuned by the optional `bass_hint`:
+///   - Both bass means < 0.3 → skip the EQ entirely and return a pure equal-power
+///     crossfade. Running biquads on near-empty bass is just noise.
+///   - Both bass means > 0.5 → use an earlier, tighter swap window so the basslines
+///     don't fight in the overlap.
+///   - Otherwise → the default centered swap window.
 ///
 /// `crossfade_frames` is the number of stereo frames in the transition (length in
 /// samples divided by 2). The buffers MUST have `crossfade_frames * 2` interleaved
@@ -42,54 +58,58 @@ pub fn mix_crossfade_eq(
     incoming: &[f32],
     crossfade_frames: usize,
     sample_rate: f64,
+    bass_hint: Option<BassMixHint>,
 ) -> Vec<f32> {
+    // If both tracks are bass-light, the bass-clash problem doesn't exist — pure
+    // equal-power crossfade sounds cleaner than running biquads on near-empty signals.
+    if let Some(h) = bass_hint {
+        if h.outgoing_bass_mean < 0.3 && h.incoming_bass_mean < 0.3 {
+            return mix_crossfade(outgoing, incoming, crossfade_frames);
+        }
+    }
+
+    // Choose swap-window timing based on bass content.
+    let (out_swap_start, out_swap_end): (f64, f64) = match bass_hint {
+        Some(h) if h.outgoing_bass_mean > 0.5 && h.incoming_bass_mean > 0.5 => (0.25, 0.40),
+        _ => (0.375, 0.5),
+    };
+    let in_swap_start = out_swap_end;
+    let in_swap_end = (out_swap_end + (out_swap_end - out_swap_start)).min(1.0);
+
     let mut outgoing_filtered = outgoing.to_vec();
     let mut incoming_filtered = incoming.to_vec();
 
-    // Outgoing: lowpass that sweeps 22 kHz → 200 Hz across t in [0.375, 0.5].
-    // The cutoff plateau on either side ensures the highs pass cleanly outside the swap window.
+    // Outgoing: lowpass sweeps from 22 kHz → 200 Hz across [out_swap_start, out_swap_end].
     apply_swept_filter(
         &mut outgoing_filtered,
         FilterKind::LowPass,
         sample_rate,
-        |t| {
-            let lo = 200.0_f64;
-            let hi = 22_000.0_f64;
-            if t <= 0.375 {
-                hi
-            } else if t >= 0.5 {
-                lo
-            } else {
-                // Log-space sweep from hi to lo across [0.375, 0.5].
-                let local = (t - 0.375) / (0.5 - 0.375);
-                let log_hi = hi.log10();
-                let log_lo = lo.log10();
-                10.0_f64.powf(log_hi + (log_lo - log_hi) * local)
-            }
-        },
+        |t| sweep_log(t, out_swap_start, out_swap_end, 22_000.0, 200.0),
     );
 
-    // Incoming: highpass that sweeps 200 Hz → 22 kHz across t in [0.5, 0.625].
+    // Incoming: highpass sweeps from 200 Hz → 22 kHz on the mirror window.
     apply_swept_filter(
         &mut incoming_filtered,
         FilterKind::HighPass,
         sample_rate,
-        |t| {
-            let lo = 200.0_f64;
-            let hi = 22_000.0_f64;
-            if t <= 0.5 {
-                lo
-            } else if t >= 0.625 {
-                hi
-            } else {
-                let local = (t - 0.5) / (0.625 - 0.5);
-                let log_lo = lo.log10();
-                let log_hi = hi.log10();
-                10.0_f64.powf(log_lo + (log_hi - log_lo) * local)
-            }
-        },
+        |t| sweep_log(t, in_swap_start, in_swap_end, 200.0, 22_000.0),
     );
 
     // Apply equal-power volume curves on top of the filtered signals.
     mix_crossfade(&outgoing_filtered, &incoming_filtered, crossfade_frames)
+}
+
+/// Log-space sweep between `from_hz` at/before `start` and `to_hz` at/after `end`.
+/// Plateaus on both sides of the [start, end] interval.
+fn sweep_log(t: f64, start: f64, end: f64, from_hz: f64, to_hz: f64) -> f64 {
+    if t < start {
+        from_hz
+    } else if t >= end {
+        to_hz
+    } else {
+        let local = (t - start) / (end - start);
+        let log_from = from_hz.log10();
+        let log_to = to_hz.log10();
+        10.0_f64.powf(log_from + (log_to - log_from) * local)
+    }
 }

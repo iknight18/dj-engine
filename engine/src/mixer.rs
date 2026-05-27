@@ -108,6 +108,7 @@ async fn execute_crossfade(
             &incoming_head,
             crossfade_frames,
             SAMPLE_RATE as f64,
+            None,
         )
     } else {
         mix_crossfade(&outgoing_tail, &incoming_head, crossfade_frames)
