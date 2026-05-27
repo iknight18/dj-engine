@@ -69,6 +69,28 @@ def silence_then_beep(duration_s: float = 10.0) -> None:
     _save("silence_then_beep.wav", audio)
 
 
+def bass_only_80hz(duration_s: float = 6.0) -> None:
+    """80 Hz sine — purely bass-band content. Energy should sit in `bass` band only."""
+    n = int(duration_s * SR)
+    t = np.arange(n, dtype=np.float32) / SR
+    audio = 0.5 * np.sin(2 * np.pi * 80.0 * t)
+    fade = int(0.05 * SR)
+    audio[:fade] *= np.linspace(0, 1, fade)
+    audio[-fade:] *= np.linspace(1, 0, fade)
+    _save("bass_only_80hz.wav", audio.astype(np.float32))
+
+
+def high_only_8khz(duration_s: float = 6.0) -> None:
+    """8 kHz sine — purely high-band content. Energy should sit in `high` band only."""
+    n = int(duration_s * SR)
+    t = np.arange(n, dtype=np.float32) / SR
+    audio = 0.5 * np.sin(2 * np.pi * 8000.0 * t)
+    fade = int(0.05 * SR)
+    audio[:fade] *= np.linspace(0, 1, fade)
+    audio[-fade:] *= np.linspace(1, 0, fade)
+    _save("high_only_8khz.wav", audio.astype(np.float32))
+
+
 def corrupt_mp3() -> None:
     """A 1-byte 'mp3' file — guarantees a decode failure."""
     (HERE / "corrupt.mp3").write_bytes(b"\x00")
@@ -78,5 +100,7 @@ if __name__ == "__main__":
     click_120bpm()
     sine_a_minor()
     silence_then_beep()
+    bass_only_80hz()
+    high_only_8khz()
     corrupt_mp3()
     print("Fixtures regenerated in", HERE)
