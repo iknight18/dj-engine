@@ -52,6 +52,32 @@ def detect_downbeats(
 _SEARCH_PERIODS_BEATS: tuple[int, ...] = (4, 8, 16)
 
 
+def compute_chroma_ssm(
+    audio: np.ndarray, sr: int, beats: list[float]
+) -> np.ndarray | None:
+    """Beat-synchronous chroma self-similarity matrix.
+
+    Returns None if the track is too short to build a meaningful SSM
+    (fewer beats than the minimum search period, or sub-second audio).
+    """
+    if len(beats) < 4 or len(audio) < sr:
+        return None
+    import librosa
+
+    beat_frames = librosa.time_to_frames(np.asarray(beats), sr=sr)
+    chroma = librosa.feature.chroma_cqt(y=audio, sr=sr)
+    chroma_sync = librosa.util.sync(chroma, beat_frames, aggregate=np.median)
+    if chroma_sync.shape[1] < min(_SEARCH_PERIODS_BEATS) + 1:
+        return None
+    if hasattr(librosa.segment, "cross_similarity"):
+        sim = librosa.segment.cross_similarity(
+            chroma_sync, chroma_sync, mode="affinity"
+        )
+    else:
+        sim = librosa.segment.recurrence_matrix(chroma_sync, mode="affinity")
+    return np.asarray(sim, dtype=np.float64)
+
+
 def detect_phrases(
     audio: np.ndarray,
     sr: int,
@@ -59,45 +85,22 @@ def detect_phrases(
     *,
     output_stride_bars: int = 16,
     phrase_bars: int | None = None,  # legacy alias for output_stride_bars
+    chroma_ssm: np.ndarray | None = None,  # NEW: reuse a precomputed SSM if available
 ) -> PhraseResult:
     """Find repeating phrase structure and return boundaries at a fixed bar stride.
 
-    The detector searches for the strongest periodicity in {4, 8, 16} beats to find
-    where structural repetition begins (the "anchor"). It then emits boundaries every
-    ``output_stride_bars`` BARS from that anchor (default 16 bars = standard DJ phrase
-    length, assuming 4/4 time with 4 beats per bar). The search period and the output
-    stride are independent — short detected periods give us reliable anchoring, and
-    the configurable stride controls the granularity of the output for the caller.
-
-    Returns boundaries (seconds) and a confidence in [0, 1] reflecting how strongly
-    the audio's self-similarity matrix exhibits the detected period.
-
-    The ``phrase_bars`` keyword is accepted as a legacy alias so existing callers
-    that meant "stride in bars" don't silently break.
+    See module docstring for details. Pass `chroma_ssm` to avoid recomputing the
+    SSM when the caller (analyze.py) has already built it for novelty detection.
     """
     if phrase_bars is not None:
         output_stride_bars = phrase_bars
     if len(beats) < 4 or len(audio) < sr:
         return PhraseResult(boundaries=[], confidence=0.0)
 
-    import librosa  # local import keeps module import cheap
-
-    beat_frames = librosa.time_to_frames(np.asarray(beats), sr=sr)
-    chroma = librosa.feature.chroma_cqt(y=audio, sr=sr)
-    # Beat-synchronous chroma, one column per beat.
-    chroma_sync = librosa.util.sync(chroma, beat_frames, aggregate=np.median)
-    if chroma_sync.shape[1] < min(_SEARCH_PERIODS_BEATS) + 1:
+    sim = chroma_ssm if chroma_ssm is not None else compute_chroma_ssm(audio, sr, beats)
+    if sim is None:
         return PhraseResult(boundaries=[], confidence=0.0)
 
-    # Self-similarity matrix on cosine distance. Prefer cross_similarity (newer librosa);
-    # fall back to recurrence_matrix on older versions.
-    if hasattr(librosa.segment, "cross_similarity"):
-        sim = librosa.segment.cross_similarity(chroma_sync, chroma_sync, mode="affinity")
-    else:
-        sim = librosa.segment.recurrence_matrix(chroma_sync, mode="affinity")
-    # For each candidate period score the diagonal at offset P. We use max-of-diagonal
-    # (not mean) so the score reflects the STRONGEST aligned pair, rather than being
-    # washed out by far-apart pairs whose affinity is weak.
     candidate_periods = [p for p in _SEARCH_PERIODS_BEATS if p < sim.shape[0]]
     if not candidate_periods:
         return PhraseResult(boundaries=[], confidence=0.0)
@@ -108,10 +111,8 @@ def detect_phrases(
 
     best_period = max(scores, key=lambda k: scores[k])
     best_score = scores[best_period]
-    # Confidence is the strongest affinity at the best phrase offset, clipped to [0, 1].
     confidence = float(max(0.0, min(1.0, best_score)))
 
-    # Anchor: first beat where similarity to (beat + best_period) is above the matrix median.
     median = float(np.median(sim))
     anchor = 0
     for i in range(sim.shape[0] - best_period):
@@ -119,9 +120,6 @@ def detect_phrases(
             anchor = i
             break
 
-    # Emit boundaries at the OUTPUT STRIDE, not the detected period. For 4/4 time,
-    # 1 bar = 4 beats, so stride_beats = output_stride_bars * 4. Anchoring on the
-    # detected repeat point still lines us up with where the music's structure starts.
     stride_beats = max(1, output_stride_bars) * 4
     boundary_indices = list(range(anchor, len(beats), stride_beats))
     boundaries = [beats[i] for i in boundary_indices]

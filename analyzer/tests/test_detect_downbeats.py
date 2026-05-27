@@ -82,3 +82,47 @@ def test_detect_phrases_phrase_bars_legacy_alias_still_works() -> None:
     via_new = detect_phrases(audio, sr, beats=beats, output_stride_bars=1)
     assert via_legacy.boundaries == via_new.boundaries
     assert via_legacy.confidence == via_new.confidence
+
+
+import numpy as np
+
+from dj_analyze.detect_downbeats import compute_chroma_ssm, detect_phrases
+
+
+def test_compute_chroma_ssm_returns_square_matrix():
+    sr = 22050
+    # 8 seconds of audio with two halves in different keys.
+    seg = sr * 4
+    a = np.sin(2 * np.pi * 220 * np.arange(seg) / sr).astype(np.float32) * 0.5  # A3
+    b = np.sin(2 * np.pi * 330 * np.arange(seg) / sr).astype(np.float32) * 0.5  # E4
+    audio = np.concatenate([a, b])
+    # Beats every 0.5s (simulated 120 BPM)
+    beats = [0.5 * i for i in range(16)]
+    ssm = compute_chroma_ssm(audio, sr, beats)
+    assert ssm is not None
+    assert ssm.ndim == 2
+    assert ssm.shape[0] == ssm.shape[1]
+    # Affinity matrix in [0, 1].
+    assert ssm.min() >= 0.0 - 1e-6
+    assert ssm.max() <= 1.0 + 1e-6
+
+
+def test_compute_chroma_ssm_too_short_returns_none():
+    sr = 22050
+    audio = np.zeros(100, dtype=np.float32)
+    assert compute_chroma_ssm(audio, sr, beats=[]) is None
+
+
+def test_detect_phrases_accepts_precomputed_ssm():
+    sr = 22050
+    seg = sr * 4
+    a = np.sin(2 * np.pi * 220 * np.arange(seg) / sr).astype(np.float32) * 0.5
+    b = np.sin(2 * np.pi * 330 * np.arange(seg) / sr).astype(np.float32) * 0.5
+    audio = np.concatenate([a, b])
+    beats = [0.5 * i for i in range(16)]
+    ssm = compute_chroma_ssm(audio, sr, beats)
+    # Passing the precomputed SSM should yield the same result as not passing it.
+    r1 = detect_phrases(audio, sr, beats=beats, output_stride_bars=4)
+    r2 = detect_phrases(audio, sr, beats=beats, output_stride_bars=4, chroma_ssm=ssm)
+    assert r1.boundaries == r2.boundaries
+    assert abs(r1.confidence - r2.confidence) < 1e-6
