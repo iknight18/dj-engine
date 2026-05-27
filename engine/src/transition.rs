@@ -14,7 +14,7 @@ pub struct TransitionPlan {
 }
 
 // Tunable thresholds. Adjust by ear after listening to several hours of output.
-const HARD_CUT_ENERGY_DELTA: f64 = 0.35;
+const HARD_CUT_ENERGY_DELTA: f64 = 0.50; // was 0.35
 const QUICK_CUT_ENERGY_DELTA: f64 = 0.20;
 const LONG_BLEND_BPM_DELTA: f64 = 0.02;
 const LONG_BLEND_ENERGY_DELTA: f64 = 0.10;
@@ -55,6 +55,14 @@ fn nearest(boundaries: &[f64], target: f64) -> Option<f64> {
 }
 
 fn pick_length_and_variant(out: &Sidecar, inc: &Sidecar) -> (usize, bool) {
+    let is_beatmatchable = inc.beatmatchable();
+    let is_phrase_aligned = inc.phrase_aligned();
+
+    // Non-beatmatchable → safe 16-bar volume crossfade, no EQ, no hard cut.
+    if !is_beatmatchable {
+        return (16, false);
+    }
+
     let out_bpm = out.bpm.unwrap_or(120.0);
     let inc_bpm = inc.bpm.unwrap_or(out_bpm);
     let bpm_delta = ((inc_bpm - out_bpm).abs() / out_bpm.max(1.0)).abs();
@@ -71,9 +79,7 @@ fn pick_length_and_variant(out: &Sidecar, inc: &Sidecar) -> (usize, bool) {
         _ => KeyMatch::None,
     };
 
-    let is_non_mixable = inc.is_mixable != Some(true);
-
-    let bars = if is_non_mixable || energy_delta > HARD_CUT_ENERGY_DELTA {
+    let bars = if energy_delta > HARD_CUT_ENERGY_DELTA {
         0
     } else if energy_delta > QUICK_CUT_ENERGY_DELTA
         || matches!(key_match, KeyMatch::Relative | KeyMatch::None)
@@ -88,6 +94,7 @@ fn pick_length_and_variant(out: &Sidecar, inc: &Sidecar) -> (usize, bool) {
         16
     };
 
-    let use_eq_swap = bars >= 8;
+    // EQ swap gated on phrase alignment (so non-aligned blends are clean volume crossfades).
+    let use_eq_swap = bars >= 8 && is_phrase_aligned;
     (bars, use_eq_swap)
 }
