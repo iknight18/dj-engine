@@ -239,12 +239,159 @@ const SPLICE_FADE_MS: f64 = 300.0;
 const RAMP_CHUNK_BARS: usize = 4;
 const RAMP_BARS: usize = 16;
 
-pub(crate) mod stretch {
-    //! Internal stretch helpers (formerly engine/src/ffmpeg/mixwindow.rs).
-    //! Re-exports from the existing `ffmpeg::mixwindow` module to keep the Deck
-    //! self-contained; Task 19 inlines them and removes the public surface.
+mod stretch {
+    //! Internal helpers: chunked atempo decode for the pitch-journey ramp.
+    //! (Formerly engine/src/ffmpeg/mixwindow.rs; inlined here so the deck is
+    //! self-contained.)
 
-    pub use crate::ffmpeg::mixwindow::{decode_stretched_ramp, ramp_source_consumed_seconds};
+    use std::path::Path;
+    use std::process::Stdio;
+
+    use tokio::io::AsyncReadExt;
+    use tokio::process::Command;
+
+    use crate::error::{EngineError, Result};
+    use crate::ffmpeg::{CHANNELS, SAMPLE_RATE};
+
+    /// Empirically-measured WSOLA source-consumption overhead per `atempo` ffmpeg
+    /// invocation (MP3 source, ratios near 1.0). Each call consumes ~130ms more
+    /// source than `output * ratio` would predict.
+    pub const ATEMPO_PER_CALL_OVERHEAD_S: f64 = 0.13;
+
+    /// Decode `output_seconds` of audio from `source_path` starting at source-time
+    /// `source_start_seconds`, time-stretched by `ratio`. Uses input seek
+    /// (`-ss before -i`) for source positioning and `-t output_seconds` to bound
+    /// output duration -- so the source range consumed is
+    /// `[source_start, source_start + output_seconds * ratio]` and the returned
+    /// buffer is exactly `output_seconds` of PCM at SAMPLE_RATE.
+    pub async fn decode_atempo_at_source(
+        source_path: &Path,
+        source_start_seconds: f64,
+        output_seconds: f64,
+        ratio: f64,
+    ) -> Result<Vec<f32>> {
+        if ratio <= 0.0 {
+            return Err(EngineError::Ffmpeg(format!("invalid atempo ratio: {ratio}")));
+        }
+        if output_seconds <= 0.0 {
+            return Ok(Vec::new());
+        }
+
+        let identity = (ratio - 1.0).abs() < 0.005;
+
+        let mut cmd = Command::new("ffmpeg");
+        cmd.arg("-hide_banner").arg("-loglevel").arg("error");
+        cmd.arg("-accurate_seek")
+            .arg("-ss")
+            .arg(format!("{:.6}", source_start_seconds.max(0.0)))
+            .arg("-i")
+            .arg(source_path)
+            .arg("-t")
+            .arg(format!("{:.6}", output_seconds));
+
+        if !identity {
+            cmd.arg("-af").arg(atempo_chain(ratio));
+        }
+
+        cmd.arg("-f")
+            .arg("f32le")
+            .arg("-ar")
+            .arg(SAMPLE_RATE.to_string())
+            .arg("-ac")
+            .arg(CHANNELS.to_string())
+            .arg("-")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| EngineError::Ffmpeg("no stdout".into()))?;
+        let mut buf = Vec::new();
+        stdout
+            .read_to_end(&mut buf)
+            .await
+            .map_err(EngineError::Io)?;
+
+        let status = child.wait().await.map_err(EngineError::Io)?;
+        if !status.success() {
+            return Err(EngineError::Ffmpeg(format!("ffmpeg exited with {status}")));
+        }
+
+        let mut samples = Vec::with_capacity(buf.len() / 4);
+        for chunk in buf.chunks_exact(4) {
+            samples.push(f32::from_le_bytes(chunk.try_into().unwrap()));
+        }
+        Ok(samples)
+    }
+
+    /// Decode a ramp region of `source_path`, starting at source-time
+    /// `source_start_seconds`, producing `ramp_seconds` of stereo PCM output.
+    /// The atempo ratio is linearly interpolated between `start_ratio` and
+    /// `end_ratio` across `chunks` equal-output-duration chunks (midpoint
+    /// interpolation: chunk `i` uses `lerp(start, end, (i + 0.5) / chunks)`).
+    pub async fn decode_stretched_ramp(
+        source_path: &Path,
+        source_start_seconds: f64,
+        start_ratio: f64,
+        end_ratio: f64,
+        ramp_seconds: f64,
+        chunks: usize,
+    ) -> Result<Vec<f32>> {
+        if chunks == 0 || ramp_seconds <= 0.0 {
+            return Ok(Vec::new());
+        }
+        let chunk_out_seconds = ramp_seconds / chunks as f64;
+        let mut out = Vec::new();
+        let mut src_pos = source_start_seconds;
+        for i in 0..chunks {
+            let frac = (i as f64 + 0.5) / chunks as f64;
+            let ratio = start_ratio + (end_ratio - start_ratio) * frac;
+            let chunk =
+                decode_atempo_at_source(source_path, src_pos, chunk_out_seconds, ratio).await?;
+            out.extend_from_slice(&chunk);
+            src_pos += chunk_out_seconds * ratio + ATEMPO_PER_CALL_OVERHEAD_S;
+        }
+        Ok(out)
+    }
+
+    /// Source-time consumed by a ramp with the given parameters.
+    pub fn ramp_source_consumed_seconds(
+        start_ratio: f64,
+        end_ratio: f64,
+        ramp_seconds: f64,
+        chunks: usize,
+    ) -> f64 {
+        ramp_seconds * (start_ratio + end_ratio) / 2.0
+            + (chunks as f64) * ATEMPO_PER_CALL_OVERHEAD_S
+    }
+
+    /// Build an atempo filter chain -- atempo only accepts ratios in [0.5, 2.0],
+    /// so for ratios outside that we chain multiple atempo instances.
+    fn atempo_chain(ratio: f64) -> String {
+        if (0.5..=2.0).contains(&ratio) {
+            return format!("atempo={ratio}");
+        }
+        let mut remaining = ratio;
+        let mut parts = Vec::new();
+        while remaining > 2.0 {
+            parts.push(2.0_f64);
+            remaining /= 2.0;
+        }
+        while remaining < 0.5 {
+            parts.push(0.5_f64);
+            remaining /= 0.5;
+        }
+        parts.push(remaining);
+        parts
+            .iter()
+            .map(|f| format!("atempo={f}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 impl Deck {

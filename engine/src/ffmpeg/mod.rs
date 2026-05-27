@@ -1,11 +1,12 @@
-//! ffmpeg subprocess orchestration. Three roles:
+//! ffmpeg subprocess orchestration. Two roles:
 //! - `decoder`: long-running PCM streamer for the currently playing track
-//! - `mixwindow`: short-lived decoder + atempo for the upcoming track's mix window
 //! - `encoder`: long-running encoder that pushes to Icecast
+//!
+//! (The former `mixwindow` short-lived stretched-decode helpers now live in a
+//! private `crate::deck::stretch` module.)
 
 pub mod decoder;
 pub mod encoder;
-pub mod mixwindow;
 
 pub const SAMPLE_RATE: u32 = 44100;
 pub const CHANNELS: u32 = 2;
