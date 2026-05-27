@@ -146,22 +146,31 @@ use crate::library::LoadedTrack;
 use std::path::PathBuf;
 
 impl Deck {
-    /// Load a track and spawn the decoder positioned at `source_start_seconds`.
-    /// After this call: Cueing, fader=0, tempo=1.0 (caller sets tempo via automation).
-    pub async fn cue(&mut self, track: LoadedTrack, source_start_seconds: f64) -> Result<()> {
+    /// Load a track and spawn the decoder positioned at `source_start_seconds`,
+    /// with `tempo` applied as an atempo ratio. `tempo=1.0` plays at native rate
+    /// (no atempo). After this call: Cueing, fader=0, tempo=tempo. The deck's
+    /// `state.tempo` matches the spawned decoder so `source_position_seconds`
+    /// tracking stays consistent with the decoder's actual source consumption.
+    pub async fn cue(
+        &mut self,
+        track: LoadedTrack,
+        source_start_seconds: f64,
+        tempo: f64,
+    ) -> Result<()> {
         let path: PathBuf = track.sidecar.source_path.clone().into();
         let cue_out = track
             .sidecar
             .cue_out_seconds
             .unwrap_or(track.sidecar.duration_seconds.unwrap_or(f64::INFINITY));
-        let decoder = PlayingDecoder::spawn(&path, source_start_seconds, cue_out).await?;
+        let decoder =
+            PlayingDecoder::spawn_with_tempo(&path, source_start_seconds, cue_out, tempo).await?;
         self.sources.clear();
         self.sources
             .push_back(DeckSource::Decoder(Box::new(decoder)));
         self.state.source_path = Some(track.sidecar.source_path.clone());
         self.state.play_state = PlayState::Cueing;
         self.state.fader = 0.0;
-        self.state.tempo = 1.0;
+        self.state.tempo = tempo;
         self.source_position_seconds = source_start_seconds;
         self.source_end_seconds = cue_out;
         self.ramp_materialized_for = None;

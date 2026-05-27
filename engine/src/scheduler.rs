@@ -29,14 +29,18 @@ impl TransitionScheduler {
         recipe: &R,
     ) -> Result<TransitionHandle> {
         let outgoing_bpm = outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
         let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
         let cue_headroom_seconds = CUE_HEADROOM_BARS * bar_seconds;
         let cue_start = (plan.incoming_crossfade_start_seconds - cue_headroom_seconds).max(0.0);
 
-        // 1) Cue the incoming deck.
+        // 1) Cue the incoming deck at the BPM-match tempo so its decoder
+        //    actually time-stretches and its source-position tracking stays
+        //    consistent with the playback rate.
         mixer
             .deck(incoming_deck)
-            .cue(incoming.clone(), cue_start)
+            .cue(incoming.clone(), cue_start, ratio)
             .await?;
         mixer.deck(incoming_deck).play();
 

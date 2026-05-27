@@ -86,6 +86,67 @@ impl PlayingDecoder {
         Ok(samples)
     }
 
+    /// Spawn `ffmpeg` with an `atempo=tempo` filter so output samples are
+    /// time-stretched from source. `source_start` and `source_end` are SOURCE-time
+    /// seconds. `tempo` is the atempo ratio (>1.0 speeds source up; output rate is
+    /// always SAMPLE_RATE). When `tempo ~ 1.0` the atempo filter is bypassed and
+    /// the behavior matches `spawn`.
+    ///
+    /// Uses pre-input seek (`-ss <start> -i path`) for source positioning so the
+    /// source range consumed is `[source_start, source_end]` regardless of tempo.
+    /// `-t <output_duration>` bounds the output, where output_duration = (end-start)/tempo.
+    pub async fn spawn_with_tempo(
+        path: &Path,
+        source_start: f64,
+        source_end: f64,
+        tempo: f64,
+    ) -> Result<Self> {
+        if tempo <= 0.0 {
+            return Err(EngineError::Ffmpeg(format!("invalid tempo: {tempo}")));
+        }
+        let identity = (tempo - 1.0).abs() < 0.005;
+        if identity {
+            return Self::spawn(path, source_start, source_end).await;
+        }
+
+        let output_duration = ((source_end - source_start).max(0.0)) / tempo;
+        let mut cmd = Command::new("ffmpeg");
+        cmd.arg("-hide_banner")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-accurate_seek")
+            .arg("-ss")
+            .arg(format!("{:.6}", source_start.max(0.0)))
+            .arg("-i")
+            .arg(path)
+            .arg("-t")
+            .arg(format!("{:.6}", output_duration))
+            .arg("-af")
+            .arg(format!("atempo={tempo}"))
+            .arg("-f")
+            .arg("f32le")
+            .arg("-ar")
+            .arg(SAMPLE_RATE.to_string())
+            .arg("-ac")
+            .arg(CHANNELS.to_string())
+            .arg("-")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| EngineError::Ffmpeg("no stdout pipe".into()))?;
+        Ok(Self {
+            child,
+            stdout,
+            start_seconds: source_start,
+        })
+    }
+
     pub async fn shutdown(mut self) {
         let _ = self.child.kill().await;
         let _ = self.child.wait().await;

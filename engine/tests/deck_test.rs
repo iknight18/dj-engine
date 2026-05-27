@@ -65,7 +65,7 @@ async fn unload_resets_state() {
 async fn cue_transitions_to_cueing_state() {
     let mut d = Deck::new(DeckId::A);
     let track = fixture_track();
-    d.cue(track, 0.0).await.expect("cue ok");
+    d.cue(track, 0.0, 1.0).await.expect("cue ok");
     assert_eq!(d.state().play_state, PlayState::Cueing);
     assert!(d.state().source_path.is_some());
 }
@@ -82,7 +82,7 @@ async fn pull_stopped_returns_zeros() {
 #[tokio::test]
 async fn pull_cueing_returns_zeros() {
     let mut d = Deck::new(DeckId::A);
-    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
     let pcm = d.pull(512).await.unwrap();
     assert_eq!(pcm.len(), 512 * 2);
     assert!(pcm.iter().all(|s| *s == 0.0));
@@ -94,7 +94,7 @@ async fn pull_cueing_returns_zeros() {
 #[tokio::test]
 async fn play_transitions_to_playing() {
     let mut d = Deck::new(DeckId::A);
-    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
     d.play();
     assert_eq!(d.state().play_state, PlayState::Playing);
 }
@@ -102,7 +102,7 @@ async fn play_transitions_to_playing() {
 #[tokio::test]
 async fn pull_playing_produces_nonzero_with_fader_unity() {
     let mut d = Deck::new(DeckId::A);
-    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
     d.play();
     // Manually set fader=1.0 (Task 13 adds automation-driven setting).
     // We use the test helper added below to poke state.
@@ -119,7 +119,7 @@ async fn pull_playing_produces_nonzero_with_fader_unity() {
 #[tokio::test]
 async fn pull_playing_with_fader_zero_returns_silence() {
     let mut d = Deck::new(DeckId::A);
-    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
     d.play();
     // fader stays at 0.0 (its initial value)
     let pcm = d.pull(4096).await.unwrap();
@@ -142,7 +142,7 @@ async fn tempo_linear_ramp_swaps_to_post_ramp_decoder() {
             ..fixture_track().sidecar
         },
     };
-    d.cue(track, 0.0).await.unwrap();
+    d.cue(track, 0.0, 1.0).await.unwrap();
     d.play();
     d.test_set_fader(1.0);
     // Schedule a Tempo Step from 1.07 → 1.07 (no-op, set the deck's tempo state).
@@ -189,7 +189,7 @@ async fn tempo_linear_ramp_swaps_to_post_ramp_decoder() {
 #[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);
-    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
     d.play();
     // Schedule a Linear 0→1 fader over the first 8192 frames.
     d.schedule(Automation {

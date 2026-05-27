@@ -92,7 +92,7 @@ async fn full_transition_outputs_continuous_audio() {
     // Cue + play outgoing on Deck A.
     {
         let d = mixer.deck(DeckId::A);
-        d.cue(outgoing.clone(), 0.0).await.unwrap();
+        d.cue(outgoing.clone(), 0.0, 1.0).await.unwrap();
         d.play();
         d.test_set_fader(1.0);
     }

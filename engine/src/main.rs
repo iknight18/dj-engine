@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let cue_in = seed.sidecar.cue_in_seconds.unwrap_or(0.0);
         let deck = mixer.deck(dj_engine::deck::DeckId::A);
-        deck.cue(seed.clone(), cue_in).await?;
+        deck.cue(seed.clone(), cue_in, 1.0).await?;
         deck.play();
         // v1: poke fader to unity directly so the seed audio is audible from
         // tick 0. Cleaner alternative: schedule a Fader Step 0->1 at frame 0
