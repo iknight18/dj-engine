@@ -6,14 +6,11 @@ use tracing::{info, warn};
 use dj_engine::buffer::{make_ring, Consumer};
 use dj_engine::config::{Cli, IcecastEnv, LogFormat};
 use dj_engine::energy_avg::EnergyTarget;
-use dj_engine::error::EngineError;
-use dj_engine::ffmpeg::decoder::PlayingDecoder;
 use dj_engine::ffmpeg::encoder::EncoderConfig;
 use dj_engine::ffmpeg::SAMPLE_RATE;
 use dj_engine::icecast_meta::{self, MetadataConfig};
 use dj_engine::library::{load_library, LoadedTrack};
 use dj_engine::logging_setup;
-use dj_engine::mixer::play_until_transition_and_crossfade;
 use dj_engine::recency::RecencyRing;
 use dj_engine::selector::Selector;
 use dj_engine::supervisor;
@@ -47,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 10 second ring buffer.
     let ring_capacity = (SAMPLE_RATE as usize) * 2 * 10;
-    let (mut producer, mut consumer) = make_ring(ring_capacity);
+    let (producer, mut consumer) = make_ring(ring_capacity);
 
     // Take stdin out of the encoder for the writer task.
     // The encoder child is kept alive by the moved struct; we drop its handle below
@@ -77,27 +74,33 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Seed track + initial decoder.
+    // Seed track
     let seed = pick_seed(&library, cli.seed_track.as_deref());
     info!(seed = %seed.sidecar.source_path, "seed track");
-    let seed_path: std::path::PathBuf = seed.sidecar.source_path.clone().into();
+
+    // Mixer with two decks. Cue + play the seed on Deck A.
+    let mut mixer = dj_engine::mixer::Mixer::new(producer);
+    {
+        let cue_in = seed.sidecar.cue_in_seconds.unwrap_or(0.0);
+        let deck = mixer.deck(dj_engine::deck::DeckId::A);
+        deck.cue(seed.clone(), cue_in).await?;
+        deck.play();
+        // v1: poke fader to unity directly so the seed audio is audible from
+        // tick 0. Cleaner alternative: schedule a Fader Step 0->1 at frame 0
+        // on Deck A. Acceptable code smell pending later cleanup.
+        deck.test_set_fader(1.0);
+    }
+
     let mut current = seed;
-    let mut decoder = PlayingDecoder::spawn(
-        &seed_path,
-        current.sidecar.cue_in_seconds.unwrap_or(0.0),
-        current.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY),
-    )
-    .await
-    .map_err(|e: EngineError| anyhow::anyhow!(e))?;
+    let mut current_deck = dj_engine::deck::DeckId::A;
+    let mut other_deck = dj_engine::deck::DeckId::B;
 
     let mut recency = RecencyRing::new(20);
     recency.record(current.sidecar.source_path.clone());
     let mut energy = EnergyTarget::new(current.sidecar.energy_mean.unwrap_or(0.5));
     let http = reqwest::Client::new();
-
     icecast_meta::update_now_playing(&http, &metadata_cfg, &current.sidecar.source_path).await;
 
-    // Main loop.
     loop {
         let next_track = {
             let mut sel = Selector::new(&library, &recency, energy.current());
@@ -110,12 +113,52 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // Crossfade.
-        decoder =
-            play_until_transition_and_crossfade(&current, &next_track, &mut decoder, &mut producer)
-                .await
-                .map_err(|e: EngineError| anyhow::anyhow!(e))?;
+        let plan = dj_engine::transition::plan_transition(&current.sidecar, &next_track.sidecar);
 
+        // Play current track until its outro_start (then the recipe takes over).
+        // outro_start in source-time -> master-clock frames.
+        let cue_in = current.sidecar.cue_in_seconds.unwrap_or(0.0);
+        let outro_start = plan.outgoing_crossfade_start_seconds;
+        let frames_until_outro =
+            ((outro_start - cue_in).max(0.0) * dj_engine::ffmpeg::SAMPLE_RATE as f64) as u64;
+        let outro_deadline = mixer.master_clock_frames() + frames_until_outro;
+        dj_engine::mixer::tick_until(&mut mixer, outro_deadline).await?;
+
+        // Arm the transition.
+        let choice = dj_engine::recipe::pick_recipe(&plan);
+        let handle = match choice {
+            dj_engine::recipe::RecipeChoice::EqualPower => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::EqualPowerCrossfade,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::HardCut => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::HardCut,
+                )
+                .await?
+            }
+        };
+
+        // Tick through the transition.
+        dj_engine::mixer::tick_until(&mut mixer, handle.end_master_clock_frames).await?;
+
+        // Unload outgoing, swap roles.
+        mixer.deck(current_deck).unload().await;
+        std::mem::swap(&mut current_deck, &mut other_deck);
         recency.record(next_track.sidecar.source_path.clone());
         energy.advance();
         icecast_meta::update_now_playing(&http, &metadata_cfg, &next_track.sidecar.source_path)
