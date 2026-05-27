@@ -11,7 +11,7 @@
     "source_size_bytes"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "const": 2 },
     "analyzer_version": { "type": "string" },
     "source_path": { "type": "string" },
     "source_mtime": { "type": "number" },
@@ -60,10 +60,40 @@
           "bpm_variable",
           "no_clear_downbeat",
           "too_short",
-          "key_low_confidence"
+          "key_low_confidence",
+          "phrase_low_confidence",
+          "bass_only_track"
         ]
       }
-    }
+    },
+
+    "phrase_boundaries_seconds": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 }
+    },
+    "phrase_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "band_energy_curves": {
+      "type": "object",
+      "required": ["bass", "mid", "high"],
+      "properties": {
+        "bass": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 } },
+        "mid":  { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 } },
+        "high": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "band_energy_means": {
+      "type": "object",
+      "required": ["bass", "mid", "high"],
+      "properties": {
+        "bass": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mid":  { "type": "number", "minimum": 0, "maximum": 1 },
+        "high": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "is_beatmatchable": { "type": "boolean" },
+    "is_phrase_aligned": { "type": "boolean" }
   },
   "additionalProperties": false,
   "allOf": [
