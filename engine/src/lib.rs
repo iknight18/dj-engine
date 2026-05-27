@@ -1,6 +1,7 @@
 //! DJ Engine — Rust orchestration around ffmpeg subprocesses.
 
 pub mod align;
+pub mod automation;
 pub mod buffer;
 pub mod camelot;
 pub mod config;
