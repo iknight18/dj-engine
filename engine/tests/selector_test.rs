@@ -82,3 +82,36 @@ fn skips_recently_played() {
     let next = sel.pick_next(current).unwrap();
     assert_eq!(next.sidecar.source_path, "c");
 }
+
+#[test]
+fn prefers_smoother_transition_when_other_axes_tied() {
+    // Two candidates that score identically on BPM/key/energy but differ wildly
+    // in expected transition: one would produce a long blend, the other a hard cut.
+    let library = vec![
+        track("a", 120.0, "8A", 0.4, true),
+        // "b": identical → long blend with current.
+        track("b", 120.0, "8A", 0.4, true),
+        // "c": same BPM/key/energy as b... but we force a huge energy gap into c by NOT setting
+        // energy_mean — wait, that won't work; instead force is_mixable=false on c so transition
+        // would be 16-bar fade (lower transition_score) instead of 32-bar long blend.
+        track("c", 120.0, "8A", 0.4, false),
+    ];
+    let recency = RecencyRing::new(20);
+    // Use a target_energy that scores both b and c equally on the energy axis.
+    let mut sel = Selector::new(&library, &recency, 0.4);
+    let current = &library[0];
+
+    // Pick repeatedly; b should be chosen more often than c because b would produce a
+    // long-blend transition (higher transition_score) while c would produce a 16-bar fade.
+    let mut b_wins = 0;
+    let mut c_wins = 0;
+    for _ in 0..200 {
+        let pick = sel.pick_next(current).unwrap();
+        if pick.sidecar.source_path == "b" {
+            b_wins += 1;
+        } else if pick.sidecar.source_path == "c" {
+            c_wins += 1;
+        }
+    }
+    assert!(b_wins > c_wins, "expected b (long blend) > c (fade); got b={} c={}", b_wins, c_wins);
+}

@@ -136,6 +136,20 @@ impl<'a> Selector<'a> {
         let cand_energy = candidate.sidecar.energy_mean.unwrap_or(0.5);
         let energy_score = (1.0 - (cand_energy - self.target_energy).abs() / 0.15).max(0.0);
 
-        bpm_score * 1.0 + key_score * 1.0 + energy_score * 0.5
+        // Transition-aware term — look ahead at what plan_transition would produce.
+        let transition_score = match crate::transition::plan_transition(
+            &current.sidecar,
+            &candidate.sidecar,
+        )
+        .length_bars
+        {
+            32 => 1.0,
+            16 => 0.85,
+            8 => 0.6,
+            0 => 0.2,
+            _ => 0.5,
+        };
+
+        bpm_score * 1.0 + key_score * 1.0 + energy_score * 0.5 + transition_score * 1.0
     }
 }
