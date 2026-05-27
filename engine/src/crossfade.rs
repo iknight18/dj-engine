@@ -68,31 +68,34 @@ pub fn mix_crossfade_eq(
         }
     }
 
-    // Choose swap-window timing based on bass content.
-    let (out_swap_start, out_swap_end): (f64, f64) = match bass_hint {
-        Some(h) if h.outgoing_bass_mean > 0.5 && h.incoming_bass_mean > 0.5 => (0.25, 0.40),
-        _ => (0.375, 0.5),
+    // Choose swap-window timing based on bass content. Both signals swap in the SAME
+    // window — outgoing's bass cuts out while incoming's bass cuts in.
+    let (swap_start, swap_end): (f64, f64) = match bass_hint {
+        Some(h) if h.outgoing_bass_mean > 0.5 && h.incoming_bass_mean > 0.5 => (0.30, 0.55),
+        _ => (0.375, 0.625),
     };
-    let in_swap_start = out_swap_end;
-    let in_swap_end = (out_swap_end + (out_swap_end - out_swap_start)).min(1.0);
 
     let mut outgoing_filtered = outgoing.to_vec();
     let mut incoming_filtered = incoming.to_vec();
 
-    // Outgoing: lowpass sweeps from 22 kHz → 200 Hz across [out_swap_start, out_swap_end].
+    // Outgoing: highpass that ACTIVATES — cutoff sweeps from 20 Hz (passthrough) to
+    // 200 Hz (sub-bass only) across the swap window. The outgoing keeps its highs
+    // throughout; only its bass is removed by the midpoint.
     apply_swept_filter(
         &mut outgoing_filtered,
-        FilterKind::LowPass,
+        FilterKind::HighPass,
         sample_rate,
-        |t| sweep_log(t, out_swap_start, out_swap_end, 22_000.0, 200.0),
+        |t| sweep_log(t, swap_start, swap_end, 20.0, 200.0),
     );
 
-    // Incoming: highpass sweeps from 200 Hz → 22 kHz on the mirror window.
+    // Incoming: highpass that RELEASES — cutoff sweeps from 200 Hz (bass killed) to
+    // 20 Hz (full passthrough) across the same window. The incoming's highs are
+    // present from the start; its bass crosses in at the midpoint.
     apply_swept_filter(
         &mut incoming_filtered,
         FilterKind::HighPass,
         sample_rate,
-        |t| sweep_log(t, in_swap_start, in_swap_end, 200.0, 22_000.0),
+        |t| sweep_log(t, swap_start, swap_end, 200.0, 20.0),
     );
 
     // Apply equal-power volume curves on top of the filtered signals.
