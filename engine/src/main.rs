@@ -163,6 +163,7 @@ async fn main() -> anyhow::Result<()> {
         let recipe_name: &str = match choice {
             dj_engine::recipe::RecipeChoice::EqualPower => "equal_power_crossfade",
             dj_engine::recipe::RecipeChoice::HardCut => "hard_cut",
+            dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap_crossfade",
         };
         let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
@@ -210,6 +211,18 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            dj_engine::recipe::RecipeChoice::BassSwap => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::BassSwap,
+                )
+                .await?
+            }
         };
 
         // Tick through the transition.
@@ -252,18 +265,17 @@ fn short_name(source_path: &str) -> &str {
 
 /// Human-readable label for the transition variant a `TransitionPlan` represents.
 /// `length_bars` is the canonical signal: 0 = hard cut, 8 = quick cut, 16 = standard
-/// blend, 32 = long blend. `use_eq_swap=true` would have triggered the bass-swap
-/// variant in the pre-refactor engine; sub-project 1 emits a plain equal-power
-/// crossfade either way and we log the intent.
+/// blend, 32 = long blend. `use_eq_swap=true` now triggers the `BassSwap` recipe,
+/// so the label reflects the realized variant rather than the pre-refactor intent.
 fn transition_type_label(length_bars: usize, use_eq_swap: bool) -> &'static str {
     match (length_bars, use_eq_swap) {
         (0, _) => "hard_cut",
         (8, false) => "quick_cut",
-        (8, true) => "quick_cut_with_eq_swap_intended",
+        (8, true) => "bass_swap_quick_cut",
         (16, false) => "standard_blend",
-        (16, true) => "standard_blend_with_eq_swap_intended",
+        (16, true) => "bass_swap_standard_blend",
         (32, false) => "long_blend",
-        (32, true) => "long_blend_with_eq_swap_intended",
+        (32, true) => "bass_swap_long_blend",
         _ => "custom_blend",
     }
 }
