@@ -28,6 +28,12 @@ fn track(path: &str, bpm: f64, key: &str, energy: f64, mixable: bool) -> LoadedT
         outro_start_seconds: Some(180.0),
         is_mixable: Some(mixable),
         mixable_reasons: vec![],
+        phrase_boundaries_seconds: None,
+        phrase_confidence: None,
+        band_energy_curves: None,
+        band_energy_means: None,
+        is_beatmatchable: None,
+        is_phrase_aligned: None,
     };
     LoadedTrack {
         sidecar_path: path.into(),

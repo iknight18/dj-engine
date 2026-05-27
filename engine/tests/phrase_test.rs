@@ -26,6 +26,12 @@ fn make_sc(downbeats: Vec<f64>, intro_end: f64, outro_start: f64) -> Sidecar {
         outro_start_seconds: Some(outro_start),
         is_mixable: Some(true),
         mixable_reasons: vec![],
+        phrase_boundaries_seconds: None,
+        phrase_confidence: None,
+        band_energy_curves: None,
+        band_energy_means: None,
+        is_beatmatchable: None,
+        is_phrase_aligned: None,
     }
 }
 

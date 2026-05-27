@@ -1,9 +1,24 @@
-//! Serde types matching schema/sidecar.schema.json.
+//! Serde types matching schema/sidecar.schema.json (v1 + v2).
 //!
-//! Optional fields reflect that an "error sidecar" (decoding failed) only has the
-//! base identifying fields plus `error`.
+//! All v2-only fields are Option<...>; v1 sidecars deserialize cleanly with those
+//! fields left as None. The `beatmatchable()` / `phrase_aligned()` helpers paper
+//! over the v1/v2 difference for callers.
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BandValues {
+    pub bass: f64,
+    pub mid: f64,
+    pub high: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BandCurves {
+    pub bass: Vec<f64>,
+    pub mid: Vec<f64>,
+    pub high: Vec<f64>,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Sidecar {
@@ -42,6 +57,20 @@ pub struct Sidecar {
     pub is_mixable: Option<bool>,
     #[serde(default)]
     pub mixable_reasons: Vec<String>,
+
+    // v2 additions
+    #[serde(default)]
+    pub phrase_boundaries_seconds: Option<Vec<f64>>,
+    #[serde(default)]
+    pub phrase_confidence: Option<f64>,
+    #[serde(default)]
+    pub band_energy_curves: Option<BandCurves>,
+    #[serde(default)]
+    pub band_energy_means: Option<BandValues>,
+    #[serde(default)]
+    pub is_beatmatchable: Option<bool>,
+    #[serde(default)]
+    pub is_phrase_aligned: Option<bool>,
 }
 
 impl Sidecar {
@@ -54,5 +83,19 @@ impl Sidecar {
             && self.cue_out_seconds.is_some()
             && self.intro_end_seconds.is_some()
             && self.outro_start_seconds.is_some()
+    }
+
+    /// True if this track is safe to time-stretch + EQ-swap crossfade.
+    /// v2 uses is_beatmatchable; v1 falls back to is_mixable.
+    pub fn beatmatchable(&self) -> bool {
+        self.is_beatmatchable
+            .or(self.is_mixable)
+            .unwrap_or(false)
+    }
+
+    /// True if downbeats are accurate enough to snap to phrase boundaries.
+    /// v2 uses is_phrase_aligned; v1 conservatively returns false.
+    pub fn phrase_aligned(&self) -> bool {
+        self.is_phrase_aligned.unwrap_or(false)
     }
 }
