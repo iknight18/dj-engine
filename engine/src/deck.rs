@@ -87,6 +87,9 @@ pub struct Deck {
     source_position_seconds: f64,
     /// cue_out boundary in source-time seconds; respawns clamp to this.
     source_end_seconds: f64,
+    /// `t_start_frames` of the Tempo Linear ramp we've already materialized
+    /// into the source queue. `None` means no ramp staged yet.
+    ramp_materialized_for: Option<u64>,
 }
 
 impl Deck {
@@ -99,6 +102,7 @@ impl Deck {
             frame_cursor: 0,
             source_position_seconds: 0.0,
             source_end_seconds: f64::INFINITY,
+            ramp_materialized_for: None,
         }
     }
 
@@ -126,6 +130,7 @@ impl Deck {
         self.state.tempo = 1.0;
         self.source_position_seconds = 0.0;
         self.source_end_seconds = f64::INFINITY;
+        self.ramp_materialized_for = None;
     }
 }
 
@@ -154,6 +159,7 @@ impl Deck {
         self.state.tempo = 1.0;
         self.source_position_seconds = source_start_seconds;
         self.source_end_seconds = cue_out;
+        self.ramp_materialized_for = None;
         Ok(())
     }
 
@@ -167,6 +173,7 @@ impl Deck {
     /// by `n_frames`. Returns zeros for Stopped/Cueing.
     pub async fn pull(&mut self, n_frames: usize) -> Result<Vec<f32>> {
         let start_cursor = self.frame_cursor;
+        self.maybe_prepare_tempo_ramp(start_cursor).await?;
         self.frame_cursor += n_frames as u64;
 
         if !matches!(self.state.play_state, PlayState::Playing) {
@@ -223,5 +230,122 @@ impl Deck {
     #[doc(hidden)]
     pub fn test_set_fader(&mut self, v: f32) {
         self.state.fader = v;
+    }
+}
+
+const SPLICE_FADE_MS: f64 = 300.0;
+const RAMP_CHUNK_BARS: usize = 4;
+const RAMP_BARS: usize = 16;
+
+pub(crate) mod stretch {
+    //! Internal stretch helpers (formerly engine/src/ffmpeg/mixwindow.rs).
+    //! Re-exports from the existing `ffmpeg::mixwindow` module to keep the Deck
+    //! self-contained; Task 19 inlines them and removes the public surface.
+
+    pub use crate::ffmpeg::mixwindow::{decode_stretched_ramp, ramp_source_consumed_seconds};
+}
+
+impl Deck {
+    /// Look for a pending Tempo Linear automation that we have not yet
+    /// materialized into source-queue PCM. If found, build the ramp buffer +
+    /// post-ramp decoder + splice and push them onto the queue.
+    async fn maybe_prepare_tempo_ramp(&mut self, cursor: u64) -> Result<()> {
+        // Look up the next pending Tempo Linear ramp; abort if there is none, if
+        // it has already been materialized, or if it is still further than one
+        // bar away.
+        let (ramp_t_start, ramp_from, ramp_to, ramp_frames, one_bar_frames) = {
+            let Some(ramp) = self.automations.peek_pending_tempo_linear() else {
+                return Ok(());
+            };
+            if self.ramp_materialized_for == Some(ramp.t_start_frames) {
+                return Ok(());
+            }
+            let bar_seconds = 60.0_f64 / 120.0 * 4.0;
+            let one_bar = (SAMPLE_RATE as f64 * bar_seconds) as u64;
+            if ramp.t_start_frames > cursor + one_bar {
+                return Ok(());
+            }
+            (
+                ramp.t_start_frames,
+                ramp.from,
+                ramp.to,
+                ramp.t_end_frames - ramp.t_start_frames,
+                one_bar,
+            )
+        };
+        let _ = one_bar_frames;
+
+        let source_path: std::path::PathBuf = self
+            .state
+            .source_path
+            .as_ref()
+            .map(|s| s.into())
+            .ok_or_else(|| crate::error::EngineError::Ffmpeg("no source".into()))?;
+        let start_ratio = ramp_from;
+        let end_ratio = ramp_to;
+        let ramp_seconds = ramp_frames as f64 / SAMPLE_RATE as f64;
+        let chunks = (RAMP_BARS / RAMP_CHUNK_BARS).max(1);
+
+        // Source-time position where the ramp begins.
+        let ramp_source_start = self.source_position_seconds;
+        let ramp_consumed = stretch::ramp_source_consumed_seconds(
+            start_ratio,
+            end_ratio,
+            ramp_seconds,
+            chunks,
+        );
+        let post_ramp_source = (ramp_source_start + ramp_consumed).min(self.source_end_seconds);
+
+        // Decode the ramp PCM (blocking await — runs ahead of real time).
+        let mut ramp_pcm = stretch::decode_stretched_ramp(
+            &source_path,
+            ramp_source_start,
+            start_ratio,
+            end_ratio,
+            ramp_seconds,
+            chunks,
+        )
+        .await?;
+
+        // Pre-spawn the post-ramp decoder and read SPLICE_FADE_MS of its head.
+        let splice_frames = ((SPLICE_FADE_MS / 1000.0) * SAMPLE_RATE as f64) as usize;
+        let splice_samples = splice_frames * (CHANNELS as usize);
+        let new_start = (post_ramp_source - SPLICE_FADE_MS / 1000.0).max(0.0);
+        let mut new_decoder =
+            PlayingDecoder::spawn(&source_path, new_start, self.source_end_seconds).await?;
+        let mut new_head = new_decoder.read_frames(splice_frames).await?;
+        if new_head.len() < splice_samples {
+            new_head.resize(splice_samples, 0.0);
+        }
+        // Splice: replace ramp_pcm's last splice_samples with an equal-power
+        // crossfade between ramp_tail and new_head.
+        if ramp_pcm.len() >= splice_samples {
+            use std::f64::consts::FRAC_PI_2;
+            let body_end = ramp_pcm.len() - splice_samples;
+            for i in 0..splice_samples {
+                let t = (i / 2) as f64 / splice_frames.max(1) as f64;
+                let g_out = (t * FRAC_PI_2).cos();
+                let g_in = (t * FRAC_PI_2).sin();
+                let ramp_sample = ramp_pcm[body_end + i] as f64;
+                let new_sample = new_head[i] as f64;
+                ramp_pcm[body_end + i] = (ramp_sample * g_out + new_sample * g_in) as f32;
+            }
+        }
+
+        // Clear the existing source queue (the steady-state decoder for the
+        // pre-ramp portion has already been pulled through; whatever is left
+        // is residual). Push buffer, then post-ramp decoder.
+        self.sources.clear();
+        self.sources.push_back(DeckSource::Buffer {
+            pcm: ramp_pcm,
+            offset_samples: 0,
+        });
+        self.sources.push_back(DeckSource::Decoder(new_decoder));
+
+        // Update source position to reflect that we've now committed to
+        // post-ramp playback.
+        self.source_position_seconds = new_start + (SPLICE_FADE_MS / 1000.0);
+        self.ramp_materialized_for = Some(ramp_t_start);
+        Ok(())
     }
 }

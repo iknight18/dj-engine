@@ -124,6 +124,63 @@ async fn pull_playing_with_fader_zero_returns_silence() {
 }
 
 #[tokio::test]
+async fn tempo_linear_ramp_swaps_to_post_ramp_decoder() {
+    // Cue a 6-second test fixture.
+    let mut d = Deck::new(DeckId::A);
+    let track = LoadedTrack {
+        sidecar_path: PathBuf::new(),
+        sidecar: Sidecar {
+            source_path: format!(
+                "{}/tests/fixtures/sine_440_6s.wav",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+            duration_seconds: Some(6.0),
+            cue_out_seconds: Some(6.0),
+            ..fixture_track().sidecar
+        },
+    };
+    d.cue(track, 0.0).await.unwrap();
+    d.play();
+    d.test_set_fader(1.0);
+    // Schedule a Tempo Step from 1.07 → 1.07 (no-op, set the deck's tempo state).
+    d.schedule(Automation {
+        target: AutomationTarget::Tempo,
+        t_start_frames: 0,
+        t_end_frames: 1,
+        from: 1.07,
+        to: 1.07,
+        curve: Curve::Step,
+    });
+    // Schedule a Linear ramp 1.07 → 1.0 over the next ~2 seconds.
+    d.schedule(Automation {
+        target: AutomationTarget::Tempo,
+        t_start_frames: 0,
+        t_end_frames: 88_200, // ~2s at 44.1 kHz
+        from: 1.07,
+        to: 1.0,
+        curve: Curve::Linear,
+    });
+    // Pull through a few ticks; the deck should produce continuous audio.
+    let mut total: Vec<f32> = Vec::new();
+    for _ in 0..30 {
+        let chunk = d.pull(4096).await.unwrap();
+        total.extend_from_slice(&chunk);
+    }
+    // Check no long gap of silence (> 1024 frames in a row of zeros = bug).
+    let mut zero_run = 0usize;
+    let mut max_zero_run = 0usize;
+    for s in &total {
+        if *s == 0.0 {
+            zero_run += 1;
+            max_zero_run = max_zero_run.max(zero_run);
+        } else {
+            zero_run = 0;
+        }
+    }
+    assert!(max_zero_run < 1024 * 2, "long silence gap: {max_zero_run} samples");
+}
+
+#[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);
     d.cue(fixture_track(), 0.0).await.unwrap();

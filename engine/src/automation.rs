@@ -86,6 +86,15 @@ impl AutomationQueue {
         self.pending.len()
     }
 
+    /// Inspect the earliest pending Tempo automation with `curve == Linear`.
+    /// Used by the deck to decide when to pre-decode a ramp.
+    pub fn peek_pending_tempo_linear(&self) -> Option<&Automation> {
+        self.pending
+            .iter()
+            .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
+            .min_by_key(|a| a.t_start_frames)
+    }
+
     /// Apply automations active at `cursor` to `state`. Automations whose
     /// `t_end_frames <= cursor` have their `to` value applied and are removed.
     /// Automations whose `t_start_frames > cursor` are left untouched.
