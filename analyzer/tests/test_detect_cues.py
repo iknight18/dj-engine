@@ -109,10 +109,13 @@ def test_detect_cues_uniform_loudness_uses_full_range():
 
 
 def test_intro_end_uses_novelty_peak():
-    """A novelty peak at 24s after cue_in -> intro_end snaps to nearest downbeat near 24s."""
+    """Earliest novelty peak in [cue_in+8, cue_in+60] -> intro_end snaps to it.
+
+    Two peaks in window (20s and 40s) verifies we pick the earliest, not the latest.
+    """
     dur = 200.0
-    novelty_peaks = [24.0, 150.0]
-    novelty_strengths = [0.8, 0.6]
+    novelty_peaks = [20.0, 40.0, 150.0]  # 20 and 40 both in window; 150 outside
+    novelty_strengths = [0.8, 0.6, 0.6]
     cues = detect_cues(
         duration_seconds=dur,
         beats=[i * 0.5 for i in range(400)],
@@ -125,15 +128,18 @@ def test_intro_end_uses_novelty_peak():
         rms_db_curve=_loud_rms_db_curve(dur),
         max_rms_db=-6.0,
     )
-    # intro_end should be within 1 bar (2s at 120 BPM) of 24s.
-    assert abs(cues["intro_end_seconds"] - 24.0) <= 2.0
+    # Earliest in-window peak is 20s. Should NOT be 40s.
+    assert abs(cues["intro_end_seconds"] - 20.0) <= 2.0
 
 
 def test_outro_start_uses_last_novelty_peak():
-    """A novelty peak 30s before cue_out -> outro_start snaps to it."""
+    """Latest novelty peak in [cue_out-60, cue_out-8] -> outro_start snaps to it.
+
+    Two peaks in window (155s and 170s) verifies we pick the latest, not the earliest.
+    """
     dur = 200.0
-    novelty_peaks = [30.0, 170.0]
-    novelty_strengths = [0.5, 0.8]
+    novelty_peaks = [30.0, 155.0, 170.0]  # 155 and 170 both in window
+    novelty_strengths = [0.5, 0.7, 0.8]
     cues = detect_cues(
         duration_seconds=dur,
         beats=[i * 0.5 for i in range(400)],
@@ -146,7 +152,7 @@ def test_outro_start_uses_last_novelty_peak():
         rms_db_curve=_loud_rms_db_curve(dur),
         max_rms_db=-6.0,
     )
-    # Last loud window centers near 200s; outro_start should snap to ~170s.
+    # Latest in-window peak is 170s. Should NOT be 155s.
     assert abs(cues["outro_start_seconds"] - 170.0) <= 2.0
 
 
@@ -223,3 +229,43 @@ def test_intro_end_respects_max_guard():
     )
     # 90s above MAX_INTRO; fall back to +16 bars (~32s).
     assert abs(cues["intro_end_seconds"] - 32.0) <= 2.0
+
+
+def test_outro_start_falls_back_when_no_peak_in_window():
+    """No novelty peak in [cue_out - 60, cue_out - 8] -> fall back to cue_out - 16 bars."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[10.0, 195.0],  # both outside outro window [~140, ~192]
+        novelty_strengths=[0.8, 0.8],
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # Fallback: cue_out (~200) - 16 bars (32s) = ~168s.
+    # cue_out is snapped to last downbeat at 120 BPM = 198s.
+    # So expected ~ 198 - 32 = 166s.
+    assert abs(cues["outro_start_seconds"] - 166.0) <= 4.0
+
+
+def test_outro_start_falls_back_when_confidence_low():
+    """Peak exists in window but confidence below threshold -> fall back."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[170.0],
+        novelty_strengths=[0.5],
+        novelty_confidence=0.1,  # below NOVELTY_CONFIDENCE_THRESHOLD
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # Same fallback math as above test.
+    assert abs(cues["outro_start_seconds"] - 166.0) <= 4.0

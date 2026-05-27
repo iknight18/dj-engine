@@ -67,7 +67,6 @@ def detect_cues(
         cue_out=cue_out,
         bar_seconds=bar_seconds,
         novelty_peaks=novelty_peaks,
-        novelty_strengths=novelty_strengths,
         novelty_confidence=novelty_confidence,
         downbeats=downbeats,
     )
@@ -179,7 +178,6 @@ def _structural_outro_start(
     cue_out: float,
     bar_seconds: float,
     novelty_peaks: list[float],
-    novelty_strengths: list[float],
     novelty_confidence: float,
     downbeats: Sequence[float],
 ) -> float:
