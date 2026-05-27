@@ -1,45 +1,141 @@
-//! Integration test for the crossfade math by mixing two pure-tone files.
+use dj_engine::buffer::{make_ring, Consumer};
+use dj_engine::deck::DeckId;
+use dj_engine::ffmpeg::SAMPLE_RATE;
+use dj_engine::library::LoadedTrack;
+use dj_engine::mixer::{tick_until, Mixer};
+use dj_engine::recipe::EqualPowerCrossfade;
+use dj_engine::scheduler::TransitionScheduler;
+use dj_engine::sidecar::Sidecar;
+use dj_engine::transition::TransitionPlan;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use std::path::Path;
-
-use dj_engine::crossfade::mix_crossfade;
-use dj_engine::ffmpeg::decoder::PlayingDecoder;
-
-fn fixtures() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("audio")
+fn track(name: &str, dur: f64) -> LoadedTrack {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/{name}"));
+    LoadedTrack {
+        sidecar_path: PathBuf::new(),
+        sidecar: Sidecar {
+            schema_version: 1,
+            analyzer_version: "test".into(),
+            source_path: path.to_string_lossy().into_owned(),
+            source_mtime: 0.0,
+            source_size_bytes: 0,
+            duration_seconds: Some(dur),
+            sample_rate: Some(44100),
+            bpm: Some(120.0),
+            bpm_confidence: Some(1.0),
+            beats_seconds: vec![],
+            downbeats_seconds: vec![],
+            key: None,
+            key_label: None,
+            key_confidence: None,
+            energy_curve: vec![],
+            energy_mean: Some(0.5),
+            band_energy_means: None,
+            cue_in_seconds: Some(0.0),
+            cue_out_seconds: Some(dur),
+            intro_end_seconds: Some(0.0),
+            outro_start_seconds: Some(dur),
+            is_mixable: Some(true),
+            mixable_reasons: vec![],
+            error: None,
+            phrase_boundaries_seconds: None,
+            phrase_confidence: None,
+            band_energy_curves: None,
+            is_beatmatchable: None,
+            is_phrase_aligned: None,
+        },
+    }
 }
 
-#[tokio::test]
-async fn crossfade_contains_both_signals_in_middle() {
-    let a = fixtures().join("a_sine_440.flac");
-    let b = fixtures().join("b_sine_523.flac");
-    if !a.exists() || !b.exists() {
-        eprintln!("skipping: fixtures missing — run generate_test_audio.sh");
-        return;
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn full_transition_outputs_continuous_audio() {
+    // Small ring (10s) — a concurrent drain task keeps push_all from blocking.
+    let cap = (SAMPLE_RATE as usize) * 2 * 10;
+    let (producer, mut consumer) = make_ring(cap);
+    let mut mixer = Mixer::new(producer);
+
+    let outgoing = track("sine_440_6s.wav", 6.0);
+    let incoming = track("sine_660_6s.wav", 6.0);
+
+    // Drain task: pulls samples out of the ring into a Vec so the producer is
+    // never blocked. Stops when the `done` flag flips and the ring drains.
+    let collected: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    let done: Arc<std::sync::atomic::AtomicBool> =
+        Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let drain_collected = Arc::clone(&collected);
+    let drain_done = Arc::clone(&done);
+    let drain = tokio::spawn(async move {
+        let mut buf = vec![0f32; 4096];
+        loop {
+            let n = consumer.pop_slice(&mut buf);
+            if n > 0 {
+                drain_collected.lock().unwrap().extend_from_slice(&buf[..n]);
+            } else {
+                if drain_done.load(std::sync::atomic::Ordering::SeqCst) {
+                    // Final drain pass to catch anything still in the ring.
+                    let n2 = consumer.pop_slice(&mut buf);
+                    if n2 > 0 {
+                        drain_collected.lock().unwrap().extend_from_slice(&buf[..n2]);
+                        continue;
+                    }
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        }
+    });
+
+    // Cue + play outgoing on Deck A.
+    {
+        let d = mixer.deck(DeckId::A);
+        d.cue(outgoing.clone(), 0.0).await.unwrap();
+        d.play();
+        d.test_set_fader(1.0);
     }
 
-    let mut decoder_a = PlayingDecoder::spawn(&a, 1.0, 5.0)
-        .await
-        .expect("decoder a");
-    let mut decoder_b = PlayingDecoder::spawn(&b, 1.0, 5.0)
-        .await
-        .expect("decoder b");
+    // Drain ~0.5 s of A solo so the consumer test can see audio before xfade.
+    tick_until(&mut mixer, 22_050).await.unwrap();
 
-    let a_pcm = decoder_a.read_frames(44_100).await.expect("pcm a"); // 1s
-    let b_pcm = decoder_b.read_frames(44_100).await.expect("pcm b");
+    // 2-bar (~4s @ 120 BPM) crossfade fits inside both 6-second fixtures even
+    // after the 0.5s pre-roll on Deck A. Same BPM -> no pitch-journey ramp.
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 0.5,
+        incoming_crossfade_start_seconds: 1.0,
+        length_bars: 2,
+        use_eq_swap: false,
+    };
+    let handle = TransitionScheduler::arm(
+        &mut mixer,
+        DeckId::A,
+        DeckId::B,
+        &outgoing,
+        &incoming,
+        &plan,
+        &EqualPowerCrossfade,
+    )
+    .await
+    .unwrap();
+    tick_until(&mut mixer, handle.end_master_clock_frames)
+        .await
+        .unwrap();
 
-    let mixed = mix_crossfade(&a_pcm, &b_pcm, a_pcm.len() / 2);
-    // At the midpoint, both signals should contribute. Assert RMS is nonzero.
-    // Note: ffmpeg's lavfi sine filter emits at a low default amplitude (~0.088 peak,
-    // ~0.06 RMS for a unit-amplitude reference), so the threshold is calibrated to
-    // detect "both signals present and crossfade gains active" rather than full-scale.
-    let mid = &mixed[mixed.len() / 4..3 * mixed.len() / 4];
-    let rms: f64 = (mid.iter().map(|s| (*s as f64).powi(2)).sum::<f64>() / mid.len() as f64).sqrt();
-    assert!(
-        rms > 0.01,
-        "RMS in crossfade region was {rms} — expected > 0.01"
-    );
+    // Signal the drain task to wind down and wait for it.
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = drain.await;
+
+    let all = collected.lock().unwrap().clone();
+    assert!(!all.is_empty());
+    // Check for a long run of zeros (underrun).
+    let mut zero_run = 0usize;
+    let mut max_zero_run = 0usize;
+    for s in &all {
+        if *s == 0.0 {
+            zero_run += 1;
+            max_zero_run = max_zero_run.max(zero_run);
+        } else {
+            zero_run = 0;
+        }
+    }
+    assert!(max_zero_run < 4096, "long silence: {max_zero_run} samples");
 }
