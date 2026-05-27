@@ -79,6 +79,65 @@ impl Biquad {
             y2: 0.0,
         }
     }
+
+    /// Update coefficients without resetting state. Used for sweeps.
+    pub fn set_cutoff(&mut self, sample_rate: f64, kind: FilterKind, cutoff_hz: f64) {
+        let (b0, b1, b2, a1, a2) = match kind {
+            FilterKind::LowPass => lowpass_coeffs(sample_rate, cutoff_hz),
+            FilterKind::HighPass => highpass_coeffs(sample_rate, cutoff_hz),
+        };
+        self.b0 = b0;
+        self.b1 = b1;
+        self.b2 = b2;
+        self.a1 = a1;
+        self.a2 = a2;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterKind {
+    LowPass,
+    HighPass,
+}
+
+/// Process a stereo interleaved buffer IN PLACE with a time-varying cutoff.
+/// `cutoff_curve(t)` returns the cutoff in Hz for normalized time `t in [0, 1]`.
+/// Filters are evaluated independently per channel; state persists across the buffer.
+pub fn apply_swept_filter(
+    samples: &mut [f32],
+    kind: FilterKind,
+    sample_rate: f64,
+    cutoff_curve: impl Fn(f64) -> f64,
+) {
+    if samples.len() < 2 {
+        return;
+    }
+    let frames = samples.len() / 2;
+    let initial = cutoff_curve(0.0);
+    let mut filt_l = match kind {
+        FilterKind::LowPass => Biquad::lowpass(sample_rate, initial),
+        FilterKind::HighPass => Biquad::highpass(sample_rate, initial),
+    };
+    let mut filt_r = match kind {
+        FilterKind::LowPass => Biquad::lowpass(sample_rate, initial),
+        FilterKind::HighPass => Biquad::highpass(sample_rate, initial),
+    };
+
+    // Update cutoff every 256 frames — fine enough for a smooth audible sweep,
+    // coarse enough to avoid hammering the coefficient recompute.
+    const RECOMPUTE_EVERY: usize = 256;
+    for frame in 0..frames {
+        if frame > 0 && frame % RECOMPUTE_EVERY == 0 {
+            let t = frame as f64 / frames.max(1) as f64;
+            let cutoff = cutoff_curve(t);
+            filt_l.set_cutoff(sample_rate, kind, cutoff);
+            filt_r.set_cutoff(sample_rate, kind, cutoff);
+        }
+        let l = samples[frame * 2];
+        let r = samples[frame * 2 + 1];
+        samples[frame * 2] = filt_l.process(l);
+        samples[frame * 2 + 1] = filt_r.process(r);
+    }
 }
 
 fn highpass_coeffs(sample_rate: f64, cutoff_hz: f64) -> (f64, f64, f64, f64, f64) {
