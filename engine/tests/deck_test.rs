@@ -235,6 +235,87 @@ async fn eq_low_step_minus_40_kills_low_frequency_audio() {
 }
 
 #[tokio::test]
+async fn filter_step_plus_1_attenuates_low_frequency() {
+    // Filter at +1 (full HP at 8 kHz) should attenuate the 440 Hz fixture.
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.play();
+    d.test_set_fader(1.0);
+    d.schedule(Automation {
+        target: AutomationTarget::Filter,
+        t_start_frames: 0,
+        t_end_frames: 1,
+        from: 1.0,
+        to: 1.0,
+        curve: Curve::Step,
+    });
+    // Skip the first tick (decoder priming + biquad startup transient).
+    let _ = d.pull(4096).await.unwrap();
+    let filtered = d.pull(8192).await.unwrap();
+    let r_filtered = rms_stereo(&filtered);
+
+    let mut d2 = Deck::new(DeckId::A);
+    d2.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d2.play();
+    d2.test_set_fader(1.0);
+    let _ = d2.pull(4096).await.unwrap();
+    let baseline = d2.pull(8192).await.unwrap();
+    let r_baseline = rms_stereo(&baseline);
+
+    assert!(
+        r_filtered < r_baseline * 0.6,
+        "HP at 8 kHz should attenuate 440 Hz; filtered {r_filtered} vs baseline {r_baseline}"
+    );
+    assert!((d.state().filter_knob - 1.0).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn filter_bypass_at_zero_passes_through_unchanged() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.play();
+    d.test_set_fader(1.0);
+    // No filter automation - knob stays at 0.
+    let _ = d.pull(4096).await.unwrap();
+    let out_filtered = d.pull(8192).await.unwrap();
+    let r_filtered = rms_stereo(&out_filtered);
+
+    let mut d2 = Deck::new(DeckId::A);
+    d2.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d2.play();
+    d2.test_set_fader(1.0);
+    let _ = d2.pull(4096).await.unwrap();
+    let baseline = d2.pull(8192).await.unwrap();
+    let r_baseline = rms_stereo(&baseline);
+
+    // With knob = 0, output should be equivalent to baseline (no filter applied).
+    assert!(
+        (r_filtered - r_baseline).abs() < r_baseline * 0.01,
+        "knob=0 should be passthrough; got {r_filtered} vs {r_baseline}"
+    );
+    assert!(d.state().filter_knob.abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn cue_resets_filter_knob() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.play();
+    d.schedule(Automation {
+        target: AutomationTarget::Filter,
+        t_start_frames: 0,
+        t_end_frames: 1,
+        from: 0.0,
+        to: 1.0,
+        curve: Curve::Step,
+    });
+    let _ = d.pull(4096).await.unwrap();
+    assert!((d.state().filter_knob - 1.0).abs() < 1e-9);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    assert!(d.state().filter_knob.abs() < f64::EPSILON);
+}
+
+#[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);
     d.cue(fixture_track(), 0.0, 1.0).await.unwrap();

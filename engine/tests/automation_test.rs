@@ -275,3 +275,37 @@ fn eq_low_linear_midpoint() {
     let v = a.sample_value(50).unwrap();
     assert!((v - (-20.0)).abs() < 1e-9);
 }
+
+#[test]
+fn filter_step_installs_to_value() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Filter, 0.0, 1.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.filter_knob - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn filter_clamped_above_plus_1() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Filter, 0.0, 5.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.filter_knob - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn filter_clamped_below_minus_1() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Filter, 0.0, -5.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.filter_knob - (-1.0)).abs() < 1e-9);
+}
+
+#[test]
+fn filter_linear_midpoint_negative() {
+    let a = ramp(AutomationTarget::Filter, 1.0, -1.0, Curve::Linear, 0, 100);
+    let v = a.sample_value(50).unwrap();
+    assert!((v - 0.0).abs() < 1e-9, "got {v}");
+}

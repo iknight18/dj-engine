@@ -20,6 +20,7 @@ pub struct DeckState {
     pub eq_low_db: f64,
     pub eq_mid_db: f64,
     pub eq_high_db: f64,
+    pub filter_knob: f64,
     pub source_path: Option<String>,
     pub play_state: PlayState,
 }
@@ -32,6 +33,7 @@ impl Default for DeckState {
             eq_low_db: 0.0,
             eq_mid_db: 0.0,
             eq_high_db: 0.0,
+            filter_knob: 0.0,
             source_path: None,
             play_state: PlayState::Stopped,
         }
@@ -42,6 +44,39 @@ const EQ_LOW_FREQ: f64 = 200.0;
 const EQ_MID_FREQ: f64 = 1000.0;
 const EQ_MID_Q: f64 = 1.0;
 const EQ_HIGH_FREQ: f64 = 5000.0;
+
+// Low-pass: knob 0 -> 22 kHz (passthrough), knob -1 -> 200 Hz.
+const FILTER_LP_FREQ_BYPASS: f64 = 22_000.0;
+const FILTER_LP_FREQ_MAX_LEFT: f64 = 200.0;
+
+// High-pass: knob 0 -> 10 Hz (passthrough), knob +1 -> 8 kHz.
+const FILTER_HP_FREQ_BYPASS: f64 = 10.0;
+const FILTER_HP_FREQ_MAX_RIGHT: f64 = 8_000.0;
+
+// Below this absolute knob value, skip the filter entirely (no biquad evaluation).
+const FILTER_BYPASS_EPSILON: f64 = 0.01;
+
+/// Map a knob value in `[-1, +1]` to a `(FilterKind, cutoff_hz)` pair using a
+/// log-Hz lerp from the bypass frequency to the max-deflection frequency.
+/// Knob >= 0 -> high-pass, knob < 0 -> low-pass.
+fn filter_cutoff_hz(knob: f64) -> (crate::eq::FilterKind, f64) {
+    if knob >= 0.0 {
+        (
+            crate::eq::FilterKind::HighPass,
+            log_lerp(FILTER_HP_FREQ_BYPASS, FILTER_HP_FREQ_MAX_RIGHT, knob),
+        )
+    } else {
+        (
+            crate::eq::FilterKind::LowPass,
+            log_lerp(FILTER_LP_FREQ_BYPASS, FILTER_LP_FREQ_MAX_LEFT, -knob),
+        )
+    }
+}
+
+fn log_lerp(from: f64, to: f64, t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    (from.ln() + (to.ln() - from.ln()) * t).exp()
+}
 
 use crate::error::Result;
 use crate::ffmpeg::decoder::PlayingDecoder;
@@ -118,6 +153,9 @@ pub struct Deck {
     last_eq_low_db: f64,
     last_eq_mid_db: f64,
     last_eq_high_db: f64,
+    filter_l: crate::eq::Biquad,
+    filter_r: crate::eq::Biquad,
+    last_filter_knob: f64,
 }
 
 impl Deck {
@@ -141,6 +179,9 @@ impl Deck {
             last_eq_low_db: 0.0,
             last_eq_mid_db: 0.0,
             last_eq_high_db: 0.0,
+            filter_l: crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS),
+            filter_r: crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS),
+            last_filter_knob: 0.0,
         }
     }
 
@@ -178,6 +219,7 @@ impl Deck {
         self.source_end_seconds = f64::INFINITY;
         self.ramp_materialized_for = None;
         self.reset_eq();
+        self.reset_filter();
     }
 
     /// Reset the per-deck EQ chain to passthrough (0 dB on all three bands).
@@ -196,6 +238,17 @@ impl Deck {
         self.eq_mid_r = crate::eq::Biquad::peaking(sr, EQ_MID_FREQ, EQ_MID_Q, 0.0);
         self.eq_high_l = crate::eq::Biquad::high_shelf(sr, EQ_HIGH_FREQ, 0.0);
         self.eq_high_r = crate::eq::Biquad::high_shelf(sr, EQ_HIGH_FREQ, 0.0);
+    }
+
+    /// Reset the per-deck one-knob filter to bypass (knob = 0) and re-initialize
+    /// both biquads as a passthrough low-pass. Used by `cue` and `unload` so a
+    /// new track starts with no filtering.
+    fn reset_filter(&mut self) {
+        self.state.filter_knob = 0.0;
+        self.last_filter_knob = 0.0;
+        let sr = SAMPLE_RATE as f64;
+        self.filter_l = crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS);
+        self.filter_r = crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS);
     }
 }
 
@@ -232,6 +285,7 @@ impl Deck {
         self.source_end_seconds = cue_out;
         self.ramp_materialized_for = None;
         self.reset_eq();
+        self.reset_filter();
         Ok(())
     }
 
@@ -279,13 +333,16 @@ impl Deck {
             out.resize(need_samples, 0.0);
         }
 
-        // Per-sample: evaluate automations, apply EQ chain (low → mid → high),
-        // then apply fader. Coefficients are recomputed lazily inside the loop
-        // only when the corresponding eq_*_db value differs from the cached one.
+        // Per-sample: evaluate automations, apply EQ chain (low -> mid -> high),
+        // then the one-knob filter (skipped when |knob| < epsilon), then the
+        // fader. Coefficients are recomputed lazily inside the loop only when
+        // the corresponding cached value differs from `state`.
         for f in 0..n_frames {
             let cursor = start_cursor + f as u64;
             self.automations.step(cursor, &mut self.state);
             self.recompute_eq_if_dirty();
+            self.recompute_filter_if_dirty();
+            let filter_active = self.state.filter_knob.abs() >= FILTER_BYPASS_EPSILON;
             let li = f * 2;
             let ri = li + 1;
             let l = self
@@ -294,6 +351,16 @@ impl Deck {
             let r = self
                 .eq_high_r
                 .process(self.eq_mid_r.process(self.eq_low_r.process(out[ri])));
+            let l = if filter_active {
+                self.filter_l.process(l)
+            } else {
+                l
+            };
+            let r = if filter_active {
+                self.filter_r.process(r)
+            } else {
+                r
+            };
             let g = self.state.fader;
             out[li] = l * g;
             out[ri] = r * g;
@@ -334,6 +401,29 @@ impl Deck {
                 .set_high_shelf(sr, EQ_HIGH_FREQ, self.state.eq_high_db);
             self.last_eq_high_db = self.state.eq_high_db;
         }
+    }
+
+    /// Update the one-knob filter's biquad coefficients in place when the knob
+    /// has changed. Inside the bypass dead-zone (`|knob| < FILTER_BYPASS_EPSILON`)
+    /// we still set coefficients to a harmless passthrough LP at the bypass
+    /// frequency, but the pull loop skips the biquad altogether so those
+    /// coefficients are not evaluated.
+    fn recompute_filter_if_dirty(&mut self) {
+        if (self.state.filter_knob - self.last_filter_knob).abs() <= f64::EPSILON {
+            return;
+        }
+        let sr = SAMPLE_RATE as f64;
+        if self.state.filter_knob.abs() < FILTER_BYPASS_EPSILON {
+            self.filter_l
+                .set_cutoff(sr, crate::eq::FilterKind::LowPass, FILTER_LP_FREQ_BYPASS);
+            self.filter_r
+                .set_cutoff(sr, crate::eq::FilterKind::LowPass, FILTER_LP_FREQ_BYPASS);
+        } else {
+            let (kind, cutoff) = filter_cutoff_hz(self.state.filter_knob);
+            self.filter_l.set_cutoff(sr, kind, cutoff);
+            self.filter_r.set_cutoff(sr, kind, cutoff);
+        }
+        self.last_filter_knob = self.state.filter_knob;
     }
 
     /// Test-only fader setter — bypasses the automation queue.

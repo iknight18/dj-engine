@@ -9,6 +9,7 @@ pub enum AutomationTarget {
     EqLow,
     EqMid,
     EqHigh,
+    Filter,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +145,9 @@ fn apply_value(target: AutomationTarget, v: f64, state: &mut crate::deck::DeckSt
         }
         AutomationTarget::EqHigh => {
             state.eq_high_db = v.clamp(-40.0, 6.0);
+        }
+        AutomationTarget::Filter => {
+            state.filter_knob = v.clamp(-1.0, 1.0);
         }
     }
 }
