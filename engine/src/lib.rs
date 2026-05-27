@@ -16,6 +16,7 @@ pub mod logging_setup;
 pub mod mixer;
 pub mod phrase;
 pub mod recency;
+pub mod recipe;
 pub mod selector;
 pub mod sidecar;
 pub mod supervisor;
