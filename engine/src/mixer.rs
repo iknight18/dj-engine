@@ -126,13 +126,58 @@ async fn execute_crossfade(
     Ok(new_decoder)
 }
 
-/// Placeholder — implemented in Task 10.
+/// Hard cut: play outgoing up to the snapped boundary, then splice incoming's first frame
+/// directly with no overlap and no volume blending.
 async fn execute_hard_cut(
-    _outgoing: &LoadedTrack,
-    _incoming: &LoadedTrack,
-    _decoder: &mut PlayingDecoder,
-    _producer: &mut SampleProducer,
-    _plan: &TransitionPlan,
+    outgoing: &LoadedTrack,
+    incoming: &LoadedTrack,
+    decoder: &mut PlayingDecoder,
+    producer: &mut SampleProducer,
+    plan: &TransitionPlan,
 ) -> Result<PlayingDecoder> {
-    unimplemented!("hard cut path — Task 10")
+    let outgoing_bpm = outgoing.sidecar.bpm.unwrap_or(120.0);
+    let incoming_bpm = incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+    let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+    let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+
+    let incoming_path: std::path::PathBuf = incoming.sidecar.source_path.clone().into();
+
+    // 1) Stream outgoing until we reach the snapped boundary, exactly the same as the
+    //    crossfade case — but no crossfade region after.
+    let target_seconds =
+        (plan.outgoing_crossfade_start_seconds - decoder.start_seconds).max(0.0);
+    let target_samples = (target_seconds * SAMPLE_RATE as f64) as usize * 2;
+    let mut pushed: usize = 0;
+
+    while pushed < target_samples {
+        let pcm = decoder.read_frames(READ_CHUNK_FRAMES).await?;
+        if pcm.is_empty() {
+            break;
+        }
+        let want = target_samples - pushed;
+        let to_push = pcm.len().min(want);
+        push_all(producer, &pcm[..to_push]).await;
+        pushed += to_push;
+    }
+
+    // 2) Pre-fetch a tiny bit of the incoming track at the snapped start, time-stretched.
+    //    We grab 1 bar so the splice has audio ready, then spawn the long-running decoder
+    //    to take over for the rest.
+    let stretched_start = plan.incoming_crossfade_start_seconds;
+    let stretched_end = plan.incoming_crossfade_start_seconds + bar_seconds;
+    let stretched =
+        decode_stretched(&incoming_path, stretched_start, stretched_end, ratio).await?;
+    push_all(producer, &stretched).await;
+
+    info!(
+        outgoing = %outgoing.sidecar.source_path,
+        incoming = %incoming.sidecar.source_path,
+        "hard cut complete"
+    );
+
+    // 3) Spawn the new playing decoder past the bar we just spliced.
+    let new_start = stretched_end;
+    let cue_out = incoming.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY);
+    let new_decoder = PlayingDecoder::spawn(&incoming_path, new_start, cue_out).await?;
+    Ok(new_decoder)
 }
