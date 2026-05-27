@@ -11,6 +11,12 @@ use crate::sidecar::Sidecar;
 ///
 /// Returns an empty Vec if there are no downbeats or the body is too short.
 pub fn phrase_boundaries(sc: &Sidecar, phrase_bars: usize) -> Vec<f64> {
+    // Prefer explicit sidecar-set boundaries (v2 analyzer with phrase confidence above threshold).
+    if let Some(explicit) = &sc.phrase_boundaries_seconds {
+        if !explicit.is_empty() {
+            return explicit.clone();
+        }
+    }
     if phrase_bars == 0 || sc.downbeats_seconds.is_empty() {
         return Vec::new();
     }

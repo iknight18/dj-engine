@@ -91,3 +91,21 @@ fn missing_intro_end_falls_back_to_zero() {
     // Anchor at 0, every 4th downbeat: 0.0 (and that's all within the 4 downbeats).
     assert_eq!(bounds, vec![0.0]);
 }
+
+#[test]
+fn uses_sidecar_phrase_boundaries_when_set() {
+    let mut sc = make_sc(vec![0.0, 1.0, 2.0, 3.0], 0.0, 60.0);
+    sc.phrase_boundaries_seconds = Some(vec![5.0, 10.0, 15.0]);
+    sc.is_phrase_aligned = Some(true);
+    let bounds = phrase_boundaries(&sc, 16);
+    assert_eq!(bounds, vec![5.0, 10.0, 15.0]);
+}
+
+#[test]
+fn empty_sidecar_phrase_boundaries_falls_back_to_heuristic() {
+    let mut sc = make_sc(vec![0.0, 1.0, 2.0, 3.0], 0.0, 60.0);
+    sc.phrase_boundaries_seconds = Some(vec![]);
+    // The heuristic should kick in and produce [0.0] (anchor at intro_end=0).
+    let bounds = phrase_boundaries(&sc, 4);
+    assert_eq!(bounds, vec![0.0]);
+}
