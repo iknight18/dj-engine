@@ -61,10 +61,8 @@ async fn execute_crossfade(
     // Pre-fetch a stretched window around the incoming crossfade-start point.
     // We grab from start - 1 bar (small head room) to start + length_bars (the crossfade region).
     let stretched_start = (plan.incoming_crossfade_start_seconds - bar_seconds).max(0.0);
-    let stretched_end =
-        plan.incoming_crossfade_start_seconds + crossfade_seconds + bar_seconds;
-    let stretched =
-        decode_stretched(&incoming_path, stretched_start, stretched_end, ratio).await?;
+    let stretched_end = plan.incoming_crossfade_start_seconds + crossfade_seconds + bar_seconds;
+    let stretched = decode_stretched(&incoming_path, stretched_start, stretched_end, ratio).await?;
 
     // The crossfade audio inside `stretched` starts at offset (incoming_crossfade_start - stretched_start)
     // in track-time seconds; the stretched buffer has 1x sample rate after atempo, so this offset
@@ -75,14 +73,14 @@ async fn execute_crossfade(
     let crossfade_samples = crossfade_frames * 2;
 
     let incoming_head_end = (offset_samples + crossfade_samples).min(stretched.len());
-    let mut incoming_head = stretched[offset_samples.min(stretched.len())..incoming_head_end].to_vec();
+    let mut incoming_head =
+        stretched[offset_samples.min(stretched.len())..incoming_head_end].to_vec();
     if incoming_head.len() < crossfade_samples {
         incoming_head.resize(crossfade_samples, 0.0);
     }
 
     // 1) Stream outgoing PCM until the decoder's output cursor reaches outgoing_crossfade_start.
-    let target_seconds =
-        (plan.outgoing_crossfade_start_seconds - decoder.start_seconds).max(0.0);
+    let target_seconds = (plan.outgoing_crossfade_start_seconds - decoder.start_seconds).max(0.0);
     let target_samples = (target_seconds * SAMPLE_RATE as f64) as usize * 2;
     let mut pushed: usize = 0;
 
@@ -105,7 +103,12 @@ async fn execute_crossfade(
 
     // 3) Mix.
     let mixed = if plan.use_eq_swap {
-        mix_crossfade_eq(&outgoing_tail, &incoming_head, crossfade_frames, SAMPLE_RATE as f64)
+        mix_crossfade_eq(
+            &outgoing_tail,
+            &incoming_head,
+            crossfade_frames,
+            SAMPLE_RATE as f64,
+        )
     } else {
         mix_crossfade(&outgoing_tail, &incoming_head, crossfade_frames)
     };
@@ -144,8 +147,7 @@ async fn execute_hard_cut(
 
     // 1) Stream outgoing until we reach the snapped boundary, exactly the same as the
     //    crossfade case — but no crossfade region after.
-    let target_seconds =
-        (plan.outgoing_crossfade_start_seconds - decoder.start_seconds).max(0.0);
+    let target_seconds = (plan.outgoing_crossfade_start_seconds - decoder.start_seconds).max(0.0);
     let target_samples = (target_seconds * SAMPLE_RATE as f64) as usize * 2;
     let mut pushed: usize = 0;
 
@@ -165,8 +167,7 @@ async fn execute_hard_cut(
     //    to take over for the rest.
     let stretched_start = plan.incoming_crossfade_start_seconds;
     let stretched_end = plan.incoming_crossfade_start_seconds + bar_seconds;
-    let stretched =
-        decode_stretched(&incoming_path, stretched_start, stretched_end, ratio).await?;
+    let stretched = decode_stretched(&incoming_path, stretched_start, stretched_end, ratio).await?;
     push_all(producer, &stretched).await;
 
     info!(

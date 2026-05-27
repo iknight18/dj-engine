@@ -1,7 +1,15 @@
 use dj_engine::sidecar::Sidecar;
 use dj_engine::transition::{plan_transition, TransitionPlan};
 
-fn sc(bpm: f64, key: &str, energy: f64, mixable: bool, downbeats: Vec<f64>, intro_end: f64, outro_start: f64) -> Sidecar {
+fn sc(
+    bpm: f64,
+    key: &str,
+    energy: f64,
+    mixable: bool,
+    downbeats: Vec<f64>,
+    intro_end: f64,
+    outro_start: f64,
+) -> Sidecar {
     Sidecar {
         schema_version: 1,
         analyzer_version: "0.1.0".into(),
@@ -90,7 +98,7 @@ fn relative_key_triggers_quick_cut() {
 }
 
 #[test]
-fn plan_returns_TransitionPlan_struct() {
+fn plan_returns_transition_plan_struct() {
     let out = sc(120.0, "8A", 0.4, true, dense_downbeats(), 0.0, 80.0);
     let inc = sc(120.0, "8A", 0.4, true, dense_downbeats(), 0.0, 80.0);
     let _plan: TransitionPlan = plan_transition(&out, &inc);

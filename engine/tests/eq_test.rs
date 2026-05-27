@@ -132,7 +132,11 @@ fn apply_swept_filter_stereo_channels_independent() {
     let r_channel: Vec<f32> = stereo.iter().skip(1).step_by(2).copied().collect();
     let l_rms = rms(&l_channel[200..]);
     let r_rms = rms(&r_channel[200..]);
-    assert!(l_rms > 0.4, "L (100 Hz) should still be loud; got {}", l_rms);
+    assert!(
+        l_rms > 0.4,
+        "L (100 Hz) should still be loud; got {}",
+        l_rms
+    );
     assert!(r_rms < 0.1, "R (10 kHz) should be killed; got {}", r_rms);
 }
 
@@ -159,5 +163,9 @@ fn apply_swept_filter_no_nan_no_clip() {
 
     let max_abs = buf.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
     assert!(buf.iter().all(|s| s.is_finite()), "filter produced NaN/Inf");
-    assert!(max_abs < 1.5, "output max abs ({}) is unreasonably high", max_abs);
+    assert!(
+        max_abs < 1.5,
+        "output max abs ({}) is unreasonably high",
+        max_abs
+    );
 }

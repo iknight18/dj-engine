@@ -20,15 +20,19 @@ fn rms_window(samples: &[f32], start: usize, end: usize) -> f32 {
 fn mid_region_contains_energy() {
     let sr = 44100.0;
     let frames = 4 * sr as usize; // 4 seconds
-    let outgoing = sine_stereo(440.0, frames, sr);   // A4
-    let incoming = sine_stereo(523.0, frames, sr);   // C5
+    let outgoing = sine_stereo(440.0, frames, sr); // A4
+    let incoming = sine_stereo(523.0, frames, sr); // C5
     let mixed = mix_crossfade_eq(&outgoing, &incoming, frames, sr);
     assert_eq!(mixed.len(), outgoing.len());
 
     // Middle 25% — both should have some signal energy here.
     let n = mixed.len();
     let mid_rms = rms_window(&mixed, 3 * n / 8, 5 * n / 8);
-    assert!(mid_rms > 0.05, "midpoint RMS too low ({}), expected nontrivial signal", mid_rms);
+    assert!(
+        mid_rms > 0.05,
+        "midpoint RMS too low ({}), expected nontrivial signal",
+        mid_rms
+    );
 }
 
 #[test]
@@ -45,10 +49,14 @@ fn output_length_matches_input() {
 fn no_nan_or_clip() {
     let sr = 44100.0;
     let frames = 2 * sr as usize;
-    let outgoing = sine_stereo(80.0, frames, sr);   // bass sine
+    let outgoing = sine_stereo(80.0, frames, sr); // bass sine
     let incoming = sine_stereo(80.0, frames, sr);
     let mixed = mix_crossfade_eq(&outgoing, &incoming, frames, sr);
     let max_abs = mixed.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
     assert!(mixed.iter().all(|s| s.is_finite()), "NaN or Inf in output");
-    assert!(max_abs < 1.5, "max abs sample {} unreasonably high", max_abs);
+    assert!(
+        max_abs < 1.5,
+        "max abs sample {} unreasonably high",
+        max_abs
+    );
 }

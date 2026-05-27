@@ -29,8 +29,8 @@ pub fn plan_transition(outgoing: &Sidecar, incoming: &Sidecar) -> TransitionPlan
     let outgoing_boundaries = phrase_boundaries(outgoing, PHRASE_BARS);
     let incoming_boundaries = phrase_boundaries(incoming, PHRASE_BARS);
 
-    let outgoing_crossfade_start_seconds = nearest(&outgoing_boundaries, raw_outgoing_start)
-        .unwrap_or(raw_outgoing_start);
+    let outgoing_crossfade_start_seconds =
+        nearest(&outgoing_boundaries, raw_outgoing_start).unwrap_or(raw_outgoing_start);
 
     let incoming_crossfade_start_seconds = incoming_boundaries
         .first()
@@ -46,15 +46,12 @@ pub fn plan_transition(outgoing: &Sidecar, incoming: &Sidecar) -> TransitionPlan
 }
 
 fn nearest(boundaries: &[f64], target: f64) -> Option<f64> {
-    boundaries
-        .iter()
-        .copied()
-        .min_by(|a, b| {
-            (*a - target)
-                .abs()
-                .partial_cmp(&(*b - target).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+    boundaries.iter().copied().min_by(|a, b| {
+        (*a - target)
+            .abs()
+            .partial_cmp(&(*b - target).abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
 }
 
 fn pick_length_and_variant(out: &Sidecar, inc: &Sidecar) -> (usize, bool) {
