@@ -25,7 +25,7 @@ def test_pipeline_writes_one_sidecar_per_track(tmp_path: Path) -> None:
     sidecar = output / "click_120bpm.wav.json"
     assert sidecar.exists()
     data = json.loads(sidecar.read_text())
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == 2
 
 
 def test_pipeline_is_idempotent(tmp_path: Path) -> None:

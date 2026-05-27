@@ -36,7 +36,7 @@ def test_cli_analyzes_directory(tmp_path: Path) -> None:
 
     sidecar = output / "click.wav.json"
     assert sidecar.exists()
-    assert json.loads(sidecar.read_text())["schema_version"] == 1
+    assert json.loads(sidecar.read_text())["schema_version"] == 2
 
 
 def test_cli_json_log_mode_emits_json(tmp_path: Path) -> None:
