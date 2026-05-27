@@ -40,10 +40,10 @@ def test_detect_energy_returns_energy_result():
     audio = np.sin(2 * np.pi * 440 * np.arange(sr * 4) / sr).astype(np.float32) * 0.5
     result = detect_energy(audio, sr)
     assert isinstance(result, EnergyResult)
-    assert hasattr(result, "curve")
-    assert hasattr(result, "mean")
-    assert hasattr(result, "rms_db_curve")
-    assert hasattr(result, "max_rms_db")
+    assert isinstance(result.curve, list)
+    assert isinstance(result.mean, float)
+    assert isinstance(result.rms_db_curve, list)
+    assert isinstance(result.max_rms_db, float)
 
 
 def test_detect_energy_rms_db_curve_window_count():
