@@ -88,9 +88,7 @@ impl Sidecar {
     /// True if this track is safe to time-stretch + EQ-swap crossfade.
     /// v2 uses is_beatmatchable; v1 falls back to is_mixable.
     pub fn beatmatchable(&self) -> bool {
-        self.is_beatmatchable
-            .or(self.is_mixable)
-            .unwrap_or(false)
+        self.is_beatmatchable.or(self.is_mixable).unwrap_or(false)
     }
 
     /// True if downbeats are accurate enough to snap to phrase boundaries.

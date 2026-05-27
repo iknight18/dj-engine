@@ -113,5 +113,10 @@ fn prefers_smoother_transition_when_other_axes_tied() {
             c_wins += 1;
         }
     }
-    assert!(b_wins > c_wins, "expected b (long blend) > c (fade); got b={} c={}", b_wins, c_wins);
+    assert!(
+        b_wins > c_wins,
+        "expected b (long blend) > c (fade); got b={} c={}",
+        b_wins,
+        c_wins
+    );
 }

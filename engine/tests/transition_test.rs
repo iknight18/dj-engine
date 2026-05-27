@@ -22,6 +22,7 @@ fn sc(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sc_v2(
     bpm: f64,
     key: &str,
@@ -168,8 +169,14 @@ fn non_beatmatchable_incoming_no_longer_hard_cuts() {
     let out = sc(120.0, "8A", 0.4, true, dense_downbeats(), 0.0, 80.0);
     let inc = sc_v2(120.0, "8A", 0.4, false, false, dense_downbeats(), 0.0, 80.0);
     let plan = plan_transition(&out, &inc);
-    assert_eq!(plan.length_bars, 16, "non-beatmatchable should give 16-bar fade, not hard cut");
-    assert!(!plan.use_eq_swap, "non-beatmatchable should NOT use EQ swap");
+    assert_eq!(
+        plan.length_bars, 16,
+        "non-beatmatchable should give 16-bar fade, not hard cut"
+    );
+    assert!(
+        !plan.use_eq_swap,
+        "non-beatmatchable should NOT use EQ swap"
+    );
 }
 
 #[test]
@@ -178,7 +185,10 @@ fn energy_delta_below_new_hard_cut_threshold_gets_quick_cut() {
     let out = sc(120.0, "8A", 0.2, true, dense_downbeats(), 0.0, 80.0);
     let inc = sc(120.0, "8A", 0.6, true, dense_downbeats(), 0.0, 80.0);
     let plan = plan_transition(&out, &inc);
-    assert_eq!(plan.length_bars, 8, "delta 0.40 should be quick cut not hard cut");
+    assert_eq!(
+        plan.length_bars, 8,
+        "delta 0.40 should be quick cut not hard cut"
+    );
 }
 
 #[test]
@@ -196,5 +206,8 @@ fn beatmatchable_but_not_phrase_aligned_skips_eq_swap() {
     let inc = sc_v2(120.0, "8A", 0.4, true, false, dense_downbeats(), 0.0, 80.0);
     let plan = plan_transition(&out, &inc);
     assert_eq!(plan.length_bars, 32, "still gets long blend");
-    assert!(!plan.use_eq_swap, "non-phrase-aligned should NOT EQ swap even on long blend");
+    assert!(
+        !plan.use_eq_swap,
+        "non-phrase-aligned should NOT EQ swap even on long blend"
+    );
 }

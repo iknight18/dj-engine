@@ -96,7 +96,10 @@ fn parses_v2_sidecar() {
     assert_eq!(sc.schema_version, 2);
     assert_eq!(sc.is_beatmatchable, Some(true));
     assert_eq!(sc.is_phrase_aligned, Some(true));
-    assert_eq!(sc.phrase_boundaries_seconds.as_deref(), Some(&[10.0, 26.0, 42.0][..]));
+    assert_eq!(
+        sc.phrase_boundaries_seconds.as_deref(),
+        Some(&[10.0, 26.0, 42.0][..])
+    );
     assert!(sc.band_energy_means.is_some());
 }
 
@@ -111,8 +114,14 @@ fn v2_beatmatchable_uses_new_field() {
 fn v1_beatmatchable_falls_back_to_is_mixable() {
     // VALID_JSON (the existing v1 const) has is_mixable=true but no is_beatmatchable.
     let sc: Sidecar = serde_json::from_str(VALID_JSON).unwrap();
-    assert!(sc.beatmatchable(), "v1 with is_mixable=true should be beatmatchable");
-    assert!(!sc.phrase_aligned(), "v1 should default to NOT phrase_aligned");
+    assert!(
+        sc.beatmatchable(),
+        "v1 with is_mixable=true should be beatmatchable"
+    );
+    assert!(
+        !sc.phrase_aligned(),
+        "v1 should default to NOT phrase_aligned"
+    );
 }
 
 #[test]

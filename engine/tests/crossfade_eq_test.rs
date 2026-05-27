@@ -86,7 +86,12 @@ fn both_bass_light_skips_eq_swap() {
     let mixed_plain = dj_engine::crossfade::mix_crossfade(&outgoing, &incoming, frames);
     // Both should match the pure equal-power crossfade exactly when bass is low.
     for (a, b) in mixed_with_hint.iter().zip(mixed_plain.iter()) {
-        assert!((a - b).abs() < 1e-5, "expected identical output; got {} vs {}", a, b);
+        assert!(
+            (a - b).abs() < 1e-5,
+            "expected identical output; got {} vs {}",
+            a,
+            b
+        );
     }
 }
 

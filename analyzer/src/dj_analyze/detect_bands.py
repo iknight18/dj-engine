@@ -6,7 +6,7 @@ from typing import Any
 
 import librosa
 import numpy as np
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfiltfilt  # type: ignore[import-untyped]
 
 # Band edges in Hz.
 BASS_HIGH = 250.0
@@ -68,10 +68,13 @@ def _filter_band(
 ) -> np.ndarray:
     nyq = sr / 2.0
     if kind == "lowpass":
+        assert cutoff is not None, "lowpass requires cutoff"
         sos = butter(_FILTER_ORDER, cutoff / nyq, btype="lowpass", output="sos")
     elif kind == "highpass":
+        assert cutoff is not None, "highpass requires cutoff"
         sos = butter(_FILTER_ORDER, cutoff / nyq, btype="highpass", output="sos")
     elif kind == "bandpass":
+        assert low is not None and high is not None, "bandpass requires low and high"
         sos = butter(_FILTER_ORDER, [low / nyq, high / nyq], btype="bandpass", output="sos")
     else:
         raise ValueError(f"unknown filter kind: {kind}")
