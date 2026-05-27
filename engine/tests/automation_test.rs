@@ -1,6 +1,10 @@
-use dj_engine::automation::Curve;
+use dj_engine::automation::{Automation, AutomationTarget, Curve};
 
 const EPS: f64 = 1e-9;
+
+fn ramp(target: AutomationTarget, from: f64, to: f64, curve: Curve, t0: u64, t1: u64) -> Automation {
+    Automation { target, t_start_frames: t0, t_end_frames: t1, from, to, curve }
+}
 
 #[test]
 fn curve_linear_endpoints_and_midpoint() {
@@ -49,4 +53,39 @@ fn curve_equal_power_sum_is_constant_power() {
         let b = Curve::EqualPowerOut.eval(t);
         assert!((a * a + b * b - 1.0).abs() < 1e-12, "t={t}");
     }
+}
+
+#[test]
+fn sample_value_before_start_is_none() {
+    let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 100, 200);
+    assert_eq!(a.sample_value(50), None);
+    assert_eq!(a.sample_value(99), None);
+}
+
+#[test]
+fn sample_value_at_start_is_from() {
+    let a = ramp(AutomationTarget::Fader, 0.2, 0.8, Curve::Linear, 100, 200);
+    let v = a.sample_value(100).unwrap();
+    assert!((v - 0.2).abs() < 1e-9, "got {v}");
+}
+
+#[test]
+fn sample_value_at_midpoint_linear() {
+    let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100);
+    let v = a.sample_value(50).unwrap();
+    assert!((v - 0.5).abs() < 1e-9, "got {v}");
+}
+
+#[test]
+fn sample_value_at_or_after_end_is_none() {
+    let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100);
+    assert_eq!(a.sample_value(100), None);
+    assert_eq!(a.sample_value(150), None);
+}
+
+#[test]
+fn sample_value_equal_power_in_midpoint() {
+    let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::EqualPowerIn, 0, 100);
+    let v = a.sample_value(50).unwrap();
+    assert!((v - 0.7071067811865476).abs() < 1e-12);
 }
