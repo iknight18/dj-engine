@@ -68,3 +68,32 @@ async fn cue_transitions_to_cueing_state() {
     assert_eq!(d.state().play_state, PlayState::Cueing);
     assert!(d.state().source_path.is_some());
 }
+
+#[tokio::test]
+async fn pull_stopped_returns_zeros() {
+    let mut d = Deck::new(DeckId::A);
+    let pcm = d.pull(1024).await.expect("pull ok");
+    assert_eq!(pcm.len(), 1024 * 2);
+    assert!(pcm.iter().all(|s| *s == 0.0));
+    assert_eq!(d.frame_cursor(), 1024);
+}
+
+#[tokio::test]
+async fn pull_cueing_returns_zeros() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0).await.unwrap();
+    let pcm = d.pull(512).await.unwrap();
+    assert_eq!(pcm.len(), 512 * 2);
+    assert!(pcm.iter().all(|s| *s == 0.0));
+    assert_eq!(d.frame_cursor(), 512);
+    // Still in Cueing because play() hasn't been called.
+    assert_eq!(d.state().play_state, PlayState::Cueing);
+}
+
+#[tokio::test]
+async fn play_transitions_to_playing() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.play();
+    assert_eq!(d.state().play_state, PlayState::Playing);
+}

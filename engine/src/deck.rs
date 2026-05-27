@@ -156,4 +156,22 @@ impl Deck {
         self.source_end_seconds = cue_out;
         Ok(())
     }
+
+    pub fn play(&mut self) {
+        if matches!(self.state.play_state, PlayState::Cueing) {
+            self.state.play_state = PlayState::Playing;
+        }
+    }
+
+    /// Pull `n_frames` of interleaved stereo PCM. Always advances `frame_cursor`
+    /// by `n_frames`. Returns zeros for Stopped/Cueing; the Playing path is added
+    /// in Task 12.
+    pub async fn pull(&mut self, n_frames: usize) -> Result<Vec<f32>> {
+        self.frame_cursor += n_frames as u64;
+        if !matches!(self.state.play_state, PlayState::Playing) {
+            return Ok(vec![0.0; n_frames * (CHANNELS as usize)]);
+        }
+        // Playing branch — Task 12 fills this in.
+        Ok(vec![0.0; n_frames * (CHANNELS as usize)])
+    }
 }
