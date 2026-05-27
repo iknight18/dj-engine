@@ -279,16 +279,24 @@ impl Deck {
             out.resize(need_samples, 0.0);
         }
 
-        // Per-sample fader: evaluate automation queue at frame granularity
-        // (apply the same gain to L and R of each frame).
+        // Per-sample: evaluate automations, apply EQ chain (low → mid → high),
+        // then apply fader. Coefficients are recomputed lazily inside the loop
+        // only when the corresponding eq_*_db value differs from the cached one.
         for f in 0..n_frames {
             let cursor = start_cursor + f as u64;
             self.automations.step(cursor, &mut self.state);
-            let g = self.state.fader;
+            self.recompute_eq_if_dirty();
             let li = f * 2;
             let ri = li + 1;
-            out[li] *= g;
-            out[ri] *= g;
+            let l = self
+                .eq_high_l
+                .process(self.eq_mid_l.process(self.eq_low_l.process(out[li])));
+            let r = self
+                .eq_high_r
+                .process(self.eq_mid_r.process(self.eq_low_r.process(out[ri])));
+            let g = self.state.fader;
+            out[li] = l * g;
+            out[ri] = r * g;
         }
         // Final step at frame_cursor (after the loop) to install any to-values
         // for automations that finish exactly at frame_cursor.
@@ -298,6 +306,34 @@ impl Deck {
         self.source_position_seconds += emitted_seconds * self.state.tempo;
 
         Ok(out)
+    }
+
+    /// Update biquad coefficients in place when any band's dB target has
+    /// changed since the last evaluation. Cheap when state is stable: a few
+    /// f64 compares per sample, no allocation, no DSP work.
+    fn recompute_eq_if_dirty(&mut self) {
+        let sr = SAMPLE_RATE as f64;
+        if (self.state.eq_low_db - self.last_eq_low_db).abs() > f64::EPSILON {
+            self.eq_low_l
+                .set_low_shelf(sr, EQ_LOW_FREQ, self.state.eq_low_db);
+            self.eq_low_r
+                .set_low_shelf(sr, EQ_LOW_FREQ, self.state.eq_low_db);
+            self.last_eq_low_db = self.state.eq_low_db;
+        }
+        if (self.state.eq_mid_db - self.last_eq_mid_db).abs() > f64::EPSILON {
+            self.eq_mid_l
+                .set_peaking(sr, EQ_MID_FREQ, EQ_MID_Q, self.state.eq_mid_db);
+            self.eq_mid_r
+                .set_peaking(sr, EQ_MID_FREQ, EQ_MID_Q, self.state.eq_mid_db);
+            self.last_eq_mid_db = self.state.eq_mid_db;
+        }
+        if (self.state.eq_high_db - self.last_eq_high_db).abs() > f64::EPSILON {
+            self.eq_high_l
+                .set_high_shelf(sr, EQ_HIGH_FREQ, self.state.eq_high_db);
+            self.eq_high_r
+                .set_high_shelf(sr, EQ_HIGH_FREQ, self.state.eq_high_db);
+            self.last_eq_high_db = self.state.eq_high_db;
+        }
     }
 
     /// Test-only fader setter — bypasses the automation queue.

@@ -186,6 +186,54 @@ async fn tempo_linear_ramp_swaps_to_post_ramp_decoder() {
     );
 }
 
+fn rms_stereo(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let s: f32 = samples.iter().map(|x| x * x).sum();
+    (s / samples.len() as f32).sqrt()
+}
+
+#[tokio::test]
+async fn eq_low_step_minus_40_kills_low_frequency_audio() {
+    // Setup: cue a fixture, schedule EqLow Step to -40 dB before any audio plays.
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.play();
+    d.test_set_fader(1.0);
+    d.schedule(Automation {
+        target: AutomationTarget::EqLow,
+        t_start_frames: 0,
+        t_end_frames: 1,
+        from: -40.0,
+        to: -40.0,
+        curve: Curve::Step,
+    });
+    // Drop the first tick (decoder priming) so we're well into the body of the
+    // 440 Hz fixture before measuring. Then measure RMS of two ticks of audio.
+    let _ = d.pull(4096).await.unwrap();
+    let kill_low = d.pull(8192).await.unwrap();
+    let r_killed = rms_stereo(&kill_low);
+
+    // Tear down and rerun with NO EQ automation to get the baseline RMS.
+    let mut d2 = Deck::new(DeckId::A);
+    d2.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d2.play();
+    d2.test_set_fader(1.0);
+    let _ = d2.pull(4096).await.unwrap();
+    let baseline = d2.pull(8192).await.unwrap();
+    let r_baseline = rms_stereo(&baseline);
+
+    // 440 Hz is above the 200 Hz low-shelf knee but the shelf still has SOME
+    // effect (it's a shelf, not a brick wall). Expect the killed RMS to be
+    // noticeably (>15%) lower than baseline.
+    assert!(
+        r_killed < r_baseline * 0.85,
+        "expected EqLow=-40dB to attenuate; killed {r_killed} vs baseline {r_baseline}"
+    );
+    assert!((d.state().eq_low_db - (-40.0)).abs() < 1e-9);
+}
+
 #[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);
