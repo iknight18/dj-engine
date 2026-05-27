@@ -18,6 +18,7 @@ pub mod mixer;
 pub mod phrase;
 pub mod recency;
 pub mod recipe;
+pub mod scheduler;
 pub mod selector;
 pub mod sidecar;
 pub mod supervisor;
