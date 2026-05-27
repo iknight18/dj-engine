@@ -35,15 +35,6 @@ impl Curve {
     }
 }
 
-/// Mutable snapshot of every parameter an Automation can target.
-/// Lives in `deck.rs`; declared here so this module can mutate it.
-/// **Will be moved to deck.rs in Task 7 and re-exported.**
-#[derive(Clone, Debug)]
-pub struct DeckStateStub {
-    pub fader: f32,
-    pub tempo: f64,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct Automation {
     pub target: AutomationTarget,
@@ -98,7 +89,7 @@ impl AutomationQueue {
     /// Apply automations active at `cursor` to `state`. Automations whose
     /// `t_end_frames <= cursor` have their `to` value applied and are removed.
     /// Automations whose `t_start_frames > cursor` are left untouched.
-    pub fn step(&mut self, cursor: u64, state: &mut DeckStateStub) {
+    pub fn step(&mut self, cursor: u64, state: &mut crate::deck::DeckState) {
         let mut remaining = Vec::with_capacity(self.pending.len());
         for a in self.pending.drain(..) {
             if cursor >= a.t_end_frames {
@@ -116,7 +107,7 @@ impl AutomationQueue {
     }
 }
 
-fn apply_value(target: AutomationTarget, v: f64, state: &mut DeckStateStub) {
+fn apply_value(target: AutomationTarget, v: f64, state: &mut crate::deck::DeckState) {
     match target {
         AutomationTarget::Fader => {
             state.fader = v.clamp(0.0, 1.0) as f32;

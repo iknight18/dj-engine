@@ -4,11 +4,7 @@ use crate::automation::Automation;
 use crate::library::LoadedTrack;
 use crate::transition::TransitionPlan;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeckId {
-    A,
-    B,
-}
+pub use crate::deck::DeckId;
 
 pub struct TransitionContext<'a> {
     pub outgoing: &'a LoadedTrack,

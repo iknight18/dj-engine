@@ -1,9 +1,10 @@
-use dj_engine::automation::{Automation, AutomationQueue, AutomationTarget, Curve, DeckStateStub};
+use dj_engine::automation::{Automation, AutomationQueue, AutomationTarget, Curve};
+use dj_engine::deck::DeckState;
 
 const EPS: f64 = 1e-9;
 
-fn default_stub() -> DeckStateStub {
-    DeckStateStub { fader: 0.0, tempo: 1.0 }
+fn default_state() -> DeckState {
+    DeckState::default()
 }
 
 fn ramp(target: AutomationTarget, from: f64, to: f64, curve: Curve, t0: u64, t1: u64) -> Automation {
@@ -97,7 +98,7 @@ fn sample_value_equal_power_in_midpoint() {
 #[test]
 fn empty_queue_no_change() {
     let mut q = AutomationQueue::new();
-    let mut s = default_stub();
+    let mut s = default_state();
     q.step(0, &mut s);
     assert_eq!(s.fader, 0.0);
     assert_eq!(s.tempo, 1.0);
@@ -107,7 +108,7 @@ fn empty_queue_no_change() {
 fn fader_linear_ramp_applies() {
     let mut q = AutomationQueue::new();
     q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100));
-    let mut s = default_stub();
+    let mut s = default_state();
     q.step(50, &mut s);
     assert!((s.fader - 0.5).abs() < 1e-6);
 }
@@ -116,7 +117,7 @@ fn fader_linear_ramp_applies() {
 fn fader_finished_leaves_to_installed_and_is_removed() {
     let mut q = AutomationQueue::new();
     q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100));
-    let mut s = default_stub();
+    let mut s = default_state();
     q.step(150, &mut s);
     assert!((s.fader - 1.0).abs() < 1e-6);
     assert!(q.is_empty());
@@ -126,7 +127,7 @@ fn fader_finished_leaves_to_installed_and_is_removed() {
 fn future_automation_not_yet_applied() {
     let mut q = AutomationQueue::new();
     q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 100, 200));
-    let mut s = default_stub();
+    let mut s = default_state();
     q.step(50, &mut s);
     assert_eq!(s.fader, 0.0);
     assert_eq!(q.len(), 1);
@@ -136,7 +137,7 @@ fn future_automation_not_yet_applied() {
 fn tempo_step_installs_to_value() {
     let mut q = AutomationQueue::new();
     q.schedule(ramp(AutomationTarget::Tempo, 1.0, 1.07, Curve::Step, 0, 1));
-    let mut s = default_stub();
+    let mut s = default_state();
     q.step(1, &mut s);
     assert!((s.tempo - 1.07).abs() < 1e-9);
     assert!(q.is_empty());
