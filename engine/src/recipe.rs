@@ -254,11 +254,151 @@ impl Recipe for BassSwap {
     }
 }
 
+/// `FilterFade`: incoming track filters in from the top (treble first).
+/// outgoing.Fader equal-power fade-out; incoming.Fader equal-power fade-in;
+/// incoming.Filter sweeps from +1.0 (full HP, treble only) to 0.0 (bypass)
+/// across the full crossfade window. Outgoing has no filter automation.
+pub struct FilterFade;
+
+impl Recipe for FilterFade {
+    fn name(&self) -> &'static str {
+        "filter_fade"
+    }
+
+    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let sr = ctx.sample_rate as f64;
+        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
+        let t0 = ctx.master_clock_frames;
+        let t1 = t0 + length_frames;
+
+        let outgoing_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 1.0,
+            to: 0.0,
+            curve: Curve::EqualPowerOut,
+        };
+        let incoming_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 0.0,
+            to: 1.0,
+            curve: Curve::EqualPowerIn,
+        };
+        let incoming_tempo_step = Automation {
+            target: AutomationTarget::Tempo,
+            t_start_frames: t0,
+            t_end_frames: t0 + 1,
+            from: ratio,
+            to: ratio,
+            curve: Curve::Step,
+        };
+        let incoming_filter_init = Automation {
+            target: AutomationTarget::Filter,
+            t_start_frames: t0,
+            t_end_frames: t0 + 1,
+            from: 1.0,
+            to: 1.0,
+            curve: Curve::Step,
+        };
+        let incoming_filter_sweep = Automation {
+            target: AutomationTarget::Filter,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 1.0,
+            to: 0.0,
+            curve: Curve::Linear,
+        };
+
+        RecipeOutput {
+            outgoing_automations: vec![outgoing_fader],
+            incoming_automations: vec![
+                incoming_fader,
+                incoming_tempo_step,
+                incoming_filter_init,
+                incoming_filter_sweep,
+            ],
+            total_duration_frames: length_frames,
+        }
+    }
+}
+
+/// `FilterKill`: outgoing filters out to silence (HP sweep) before fading.
+/// outgoing.Filter sweeps 0 -> +1 over the first 60% of the crossfade;
+/// outgoing.Fader equal-power fade-out over the full crossfade;
+/// incoming.Fader equal-power fade-in over the full crossfade (no filter).
+pub struct FilterKill;
+
+impl Recipe for FilterKill {
+    fn name(&self) -> &'static str {
+        "filter_kill"
+    }
+
+    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let sr = ctx.sample_rate as f64;
+        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
+        let t0 = ctx.master_clock_frames;
+        let t1 = t0 + length_frames;
+        let filter_end = t0 + ((length_frames as f64) * 0.6) as u64;
+
+        let outgoing_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 1.0,
+            to: 0.0,
+            curve: Curve::EqualPowerOut,
+        };
+        let outgoing_filter_sweep = Automation {
+            target: AutomationTarget::Filter,
+            t_start_frames: t0,
+            t_end_frames: filter_end,
+            from: 0.0,
+            to: 1.0,
+            curve: Curve::Linear,
+        };
+        let incoming_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 0.0,
+            to: 1.0,
+            curve: Curve::EqualPowerIn,
+        };
+        let incoming_tempo_step = Automation {
+            target: AutomationTarget::Tempo,
+            t_start_frames: t0,
+            t_end_frames: t0 + 1,
+            from: ratio,
+            to: ratio,
+            curve: Curve::Step,
+        };
+
+        RecipeOutput {
+            outgoing_automations: vec![outgoing_fader, outgoing_filter_sweep],
+            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+            total_duration_frames: length_frames,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
     HardCut,
     BassSwap,
+    FilterFade,
+    FilterKill,
 }
 
 pub fn pick_recipe(plan: &TransitionPlan) -> RecipeChoice {

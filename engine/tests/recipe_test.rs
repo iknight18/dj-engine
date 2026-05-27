@@ -366,3 +366,76 @@ fn pick_recipe_routes_use_eq_swap_to_bass_swap() {
     };
     assert_eq!(pick_recipe(&plan), RecipeChoice::BassSwap);
 }
+
+// ---------------------------------------------------------------------------
+// FilterFade and FilterKill recipe tests (sub-project 3, task 3)
+// ---------------------------------------------------------------------------
+
+use dj_engine::recipe::{FilterFade, FilterKill};
+
+#[test]
+fn filter_fade_emits_fader_pair_plus_incoming_filter_sweep() {
+    let outgoing = track(120.0);
+    let incoming = track(120.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+    };
+    let ctx = ctx_for(&outgoing, &incoming, &plan);
+    let r = FilterFade.build(&ctx);
+    // Outgoing: just the Fader (no filter on outgoing in FilterFade).
+    assert_eq!(r.outgoing_automations.len(), 1);
+    assert_eq!(r.outgoing_automations[0].target, AutomationTarget::Fader);
+    assert_eq!(r.outgoing_automations[0].curve, Curve::EqualPowerOut);
+    // Incoming: Fader, Tempo Step, Filter Step (init at +1), Filter Linear (+1->0).
+    assert_eq!(r.incoming_automations.len(), 4);
+    let filter_init = r
+        .incoming_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::Filter && a.curve == Curve::Step)
+        .expect("incoming filter init");
+    assert_eq!(filter_init.from, 1.0);
+    assert_eq!(filter_init.to, 1.0);
+    let filter_sweep = r
+        .incoming_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::Filter && a.curve == Curve::Linear)
+        .expect("incoming filter sweep");
+    assert_eq!(filter_sweep.from, 1.0);
+    assert_eq!(filter_sweep.to, 0.0);
+}
+
+#[test]
+fn filter_kill_emits_outgoing_filter_sweep_to_plus_1_over_60_percent() {
+    let outgoing = track(120.0);
+    let incoming = track(120.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+    };
+    let ctx = ctx_for(&outgoing, &incoming, &plan);
+    let r = FilterKill.build(&ctx);
+    // Outgoing: Fader + Filter Linear 0->+1 over first 60% of L.
+    assert_eq!(r.outgoing_automations.len(), 2);
+    let out_filter = r
+        .outgoing_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::Filter && a.curve == Curve::Linear)
+        .expect("outgoing filter sweep");
+    assert_eq!(out_filter.from, 0.0);
+    assert_eq!(out_filter.to, 1.0);
+    let bar_seconds = (60.0_f64 / 120.0) * 4.0;
+    let l_frames = (plan.length_bars as f64 * bar_seconds * SR as f64) as u64;
+    let expected_end = (0.6 * l_frames as f64) as u64;
+    assert!(
+        (out_filter.t_end_frames as i64 - expected_end as i64).abs() < 100,
+        "expected end near {expected_end}, got {}",
+        out_filter.t_end_frames
+    );
+    // Incoming: Fader + Tempo Step. No filter automation on incoming.
+    assert_eq!(r.incoming_automations.len(), 2);
+}
