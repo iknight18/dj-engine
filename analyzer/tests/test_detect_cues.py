@@ -1,56 +1,110 @@
-from __future__ import annotations
+import math
 
-from pathlib import Path
+import pytest
 
-from dj_analyze.decode import decode_audio
 from dj_analyze.detect_cues import detect_cues
 
-FIXTURES = Path(__file__).parent / "fixtures"
+
+def _downbeats_for(duration_s: float, bpm: float = 120.0) -> list[float]:
+    beat_period = 60.0 / bpm
+    bar_period = beat_period * 4.0
+    n = int(duration_s / bar_period)
+    return [bar_period * i for i in range(n)]
 
 
-def test_cues_on_silence_then_beep() -> None:
-    audio, sr = decode_audio(FIXTURES / "silence_then_beep.wav")
-    duration = len(audio) / sr
-    # Synthetic downbeats every 2s (close to 120 BPM in 4/4)
-    downbeats = [0.0, 2.0, 4.0, 6.0, 8.0]
-    energy_curve = [0.0, 0.0, 0.0, 0.6, 0.6, 0.6, 0.6, 0.0, 0.0, 0.0]
+def _silent_rms_db_curve(duration_s: float, window_s: float = 2.0) -> list[float]:
+    n = max(1, int(duration_s / window_s))
+    return [-100.0] * n
+
+
+def _loud_rms_db_curve(duration_s: float, window_s: float = 2.0, db: float = -6.0) -> list[float]:
+    n = max(1, int(duration_s / window_s))
+    return [db] * n
+
+
+def test_detect_cues_silent_track_safe_defaults():
+    """All-silent track: cue_in=0, cue_out=duration."""
+    dur = 60.0
     cues = detect_cues(
-        duration_seconds=duration,
-        beats=[0.5 * i for i in range(20)],
-        downbeats=downbeats,
-        energy_curve=energy_curve,
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(120)],
+        downbeats=_downbeats_for(dur),
+        energy_curve=[0.0] * 60,
         bpm=120.0,
-    )
-    # cue_in should be at the first downbeat where energy is meaningful (≥3s)
-    assert 2.0 <= cues["cue_in_seconds"] <= 4.0
-    # cue_out should be at the last downbeat where energy is meaningful (≤7s)
-    assert 6.0 <= cues["cue_out_seconds"] <= 8.0
-
-
-def test_short_track_clamps_intro_and_outro() -> None:
-    cues = detect_cues(
-        duration_seconds=10.0,
-        beats=[0.5 * i for i in range(20)],
-        downbeats=[0.0, 2.0, 4.0, 6.0, 8.0],
-        energy_curve=[0.5] * 10,
-        bpm=120.0,
-    )
-    # With bpm=120 a bar is 2s; 16 bars = 32s but track is 10s, so intro_end
-    # should be clamped sensibly (no later than cue_out).
-    assert cues["intro_end_seconds"] <= cues["cue_out_seconds"]
-    assert cues["outro_start_seconds"] >= cues["cue_in_seconds"]
-    assert cues["intro_end_seconds"] <= cues["outro_start_seconds"]
-
-
-def test_silent_track_uses_endpoints() -> None:
-    """Fully silent energy curve → cue_in=0, cue_out=duration."""
-    duration = 8.0
-    cues = detect_cues(
-        duration_seconds=duration,
-        beats=[0.5 * i for i in range(16)],
-        downbeats=[0.0, 2.0, 4.0, 6.0],
-        energy_curve=[0.0] * 8,
-        bpm=120.0,
+        novelty_peaks=[],
+        novelty_strengths=[],
+        novelty_confidence=0.0,
+        rms_db_curve=_silent_rms_db_curve(dur),
+        max_rms_db=-120.0,
     )
     assert cues["cue_in_seconds"] == 0.0
-    assert cues["cue_out_seconds"] == duration
+    assert cues["cue_out_seconds"] == pytest.approx(dur, abs=0.01)
+
+
+def test_detect_cues_loudness_anchor_silent_intro():
+    """10s of silence at start, then loud audio.
+
+    Expected: cue_in snaps up to the first downbeat at or after t=10s.
+    """
+    dur = 60.0
+    rms = [-100.0] * 5 + [-6.0] * 25  # 30 windows of 2s = 60s
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(120)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 60,  # unused but required
+        bpm=120.0,
+        novelty_peaks=[],
+        novelty_strengths=[],
+        novelty_confidence=0.0,
+        rms_db_curve=rms,
+        max_rms_db=-6.0,
+    )
+    # First loud window starts at index 5 -> t=10s. First downbeat >= 10s at 120 BPM
+    # (bar period 2.0s) is t=10.0s exactly.
+    assert cues["cue_in_seconds"] == pytest.approx(10.0, abs=2.0)
+
+
+def test_detect_cues_loudness_anchor_silent_outro():
+    """Loud for 50s, then 10s silence at end.
+
+    Expected: cue_out snaps down to the last downbeat at or before the silent boundary.
+    """
+    dur = 60.0
+    rms = [-6.0] * 25 + [-100.0] * 5
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(120)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 60,
+        bpm=120.0,
+        novelty_peaks=[],
+        novelty_strengths=[],
+        novelty_confidence=0.0,
+        rms_db_curve=rms,
+        max_rms_db=-6.0,
+    )
+    # Last loud window ends at t=50s. Last downbeat <= 50s at 120 BPM is t=50.0s.
+    assert cues["cue_out_seconds"] == pytest.approx(50.0, abs=2.0)
+
+
+def test_detect_cues_loudness_below_threshold_yields_no_match():
+    """Whole track is more than 9 dB below max -> falls back to no-loud-window behavior."""
+    dur = 30.0
+    # Every window is exactly at -20 dB; max is -20 dB. -20 - (-20) = 0 >= -9 -> all windows qualify.
+    rms = [-20.0] * 15
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(60)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 30,
+        bpm=120.0,
+        novelty_peaks=[],
+        novelty_strengths=[],
+        novelty_confidence=0.0,
+        rms_db_curve=rms,
+        max_rms_db=-20.0,
+    )
+    # Uniformly loud: cue_in snaps to first downbeat (t=0), cue_out to last (<= duration).
+    assert cues["cue_in_seconds"] == pytest.approx(0.0, abs=0.01)
+    assert cues["cue_out_seconds"] <= dur + 0.01

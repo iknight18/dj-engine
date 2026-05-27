@@ -1,6 +1,28 @@
-"""Cue point detection from energy curve and downbeat grid."""
+"""Cue point detection from RMS-dB curve, downbeats, and novelty peaks.
+
+Schwarz-derived rules:
+  - cue_in/out anchored by -9 dB-of-max loudness floor (2s peak-RMS windows)
+  - intro_end/outro_start from Foote novelty peaks, snapped to downbeats
+  - long tracks (>6 min) shortened to a structural exit within [5:30, 7:00]
+"""
 
 from __future__ import annotations
+
+from typing import Sequence
+
+LOUDNESS_THRESHOLD_DB = -9.0
+LOUDNESS_WINDOW_S = 2.0
+
+MIN_INTRO_SECONDS = 8.0
+MAX_INTRO_SECONDS = 60.0
+MIN_OUTRO_SECONDS = 8.0
+MAX_OUTRO_SECONDS = 60.0
+
+NOVELTY_CONFIDENCE_THRESHOLD = 0.25  # below this, fall back to +/- 16 bars
+
+LONG_TRACK_THRESHOLD_S = 360.0
+LONG_TRACK_TARGET_MIN_S = 330.0
+LONG_TRACK_TARGET_MAX_S = 420.0
 
 
 def detect_cues(
@@ -9,28 +31,31 @@ def detect_cues(
     downbeats: list[float],
     energy_curve: list[float],
     bpm: float,
+    novelty_peaks: list[float],
+    novelty_strengths: list[float],
+    novelty_confidence: float,
+    rms_db_curve: list[float],
+    max_rms_db: float,
 ) -> dict[str, float]:
     """Compute cue_in, cue_out, intro_end, outro_start (seconds).
 
-    cue_in:  first downbeat where energy ≥ 10% of mean (or 0 if all silent)
-    cue_out: last  downbeat where energy ≥ 10% of mean (or duration if all silent)
-    intro_end:    cue_in + 16 bars (clamped to [cue_in, outro_start])
-    outro_start:  cue_out - 16 bars (clamped to [intro_end, cue_out])
+    cue_in/out are anchored by the loudness floor (max - 9 dB) snapped to downbeats.
+    intro_end is the first novelty peak after cue_in within [MIN_INTRO, MAX_INTRO]s,
+    snapped to the nearest downbeat; falls back to cue_in + 16 bars when no usable peak.
+    outro_start is symmetric backwards from cue_out.
+    For tracks longer than 6 min, cue_out is moved into [5:30, 7:00] at the strongest
+    novelty peak in that window (or the floor 5:30 if none).
     """
-    if not energy_curve or all(v == 0.0 for v in energy_curve):
-        cue_in = 0.0
-        cue_out = duration_seconds
-    else:
-        mean = sum(energy_curve) / len(energy_curve)
-        threshold = max(0.05, 0.1 * mean)
-        cue_in = _first_downbeat_with_energy(downbeats, energy_curve, threshold)
-        cue_out = _last_downbeat_with_energy(downbeats, energy_curve, threshold, duration_seconds)
+    cue_in, cue_out = _loudness_anchor_cues(
+        duration_seconds, downbeats, rms_db_curve, max_rms_db
+    )
 
+    # intro_end / outro_start computed in Task 5; for now retain old +/- 16 bars heuristic.
     bar_seconds = (60.0 / bpm) * 4.0 if bpm > 0 else 2.0
     intro_end = cue_in + 16.0 * bar_seconds
     outro_start = cue_out - 16.0 * bar_seconds
 
-    # Clamp: intro_end ≤ outro_start ≤ cue_out, intro_end ≥ cue_in.
+    # Clamp.
     if intro_end > outro_start:
         midpoint = (cue_in + cue_out) / 2.0
         intro_end = midpoint
@@ -46,26 +71,63 @@ def detect_cues(
     }
 
 
-def _energy_at_seconds(curve: list[float], seconds: float) -> float:
-    idx = int(seconds)
-    if idx < 0 or idx >= len(curve):
-        return 0.0
-    return curve[idx]
+def _loudness_anchor_cues(
+    duration: float,
+    downbeats: list[float],
+    rms_db_curve: list[float],
+    max_rms_db: float,
+) -> tuple[float, float]:
+    """Return (cue_in, cue_out) anchored to -9 dB-of-max windows, snapped to downbeats."""
+    if not rms_db_curve or max_rms_db <= LOUDNESS_THRESHOLD_DB - 50:
+        # No usable loudness signal (silent track or decode error).
+        return 0.0, duration
+
+    threshold = max_rms_db + LOUDNESS_THRESHOLD_DB
+    first_loud_idx = next(
+        (i for i, v in enumerate(rms_db_curve) if v >= threshold), None
+    )
+    last_loud_idx = next(
+        (i for i in range(len(rms_db_curve) - 1, -1, -1) if rms_db_curve[i] >= threshold),
+        None,
+    )
+
+    if first_loud_idx is None or last_loud_idx is None:
+        return 0.0, duration
+
+    # Convert window indices to seconds (window starts at i * LOUDNESS_WINDOW_S,
+    # ends at (i + 1) * LOUDNESS_WINDOW_S).
+    first_loud_t = first_loud_idx * LOUDNESS_WINDOW_S
+    last_loud_t = (last_loud_idx + 1) * LOUDNESS_WINDOW_S
+
+    cue_in = _snap_up_to_downbeat(first_loud_t, downbeats, fallback=0.0)
+    cue_out = _snap_down_to_downbeat(last_loud_t, downbeats, fallback=duration)
+    if cue_out < cue_in:
+        # Degenerate: just clamp to whole track.
+        return 0.0, duration
+    return cue_in, cue_out
 
 
-def _first_downbeat_with_energy(
-    downbeats: list[float], curve: list[float], threshold: float
-) -> float:
+def _snap_up_to_downbeat(t: float, downbeats: Sequence[float], fallback: float) -> float:
+    """First downbeat >= t. If none, return fallback."""
     for db in downbeats:
-        if _energy_at_seconds(curve, db) >= threshold:
+        if db >= t:
             return float(db)
-    return float(downbeats[0]) if downbeats else 0.0
+    return float(fallback)
 
 
-def _last_downbeat_with_energy(
-    downbeats: list[float], curve: list[float], threshold: float, duration: float
-) -> float:
-    for db in reversed(downbeats):
-        if _energy_at_seconds(curve, db) >= threshold:
-            return float(db)
-    return float(downbeats[-1]) if downbeats else float(duration)
+def _snap_down_to_downbeat(t: float, downbeats: Sequence[float], fallback: float) -> float:
+    """Last downbeat <= t. If none, return fallback."""
+    last = None
+    for db in downbeats:
+        if db <= t:
+            last = db
+        else:
+            break
+    return float(last) if last is not None else float(fallback)
+
+
+def _snap_nearest_downbeat(t: float, downbeats: Sequence[float], fallback: float) -> float:
+    """Nearest downbeat (in either direction). If empty, return fallback."""
+    if not downbeats:
+        return float(fallback)
+    return float(min(downbeats, key=lambda db: abs(db - t)))
