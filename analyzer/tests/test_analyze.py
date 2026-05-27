@@ -63,11 +63,7 @@ def test_analyze_emits_cue_fields_consistent_with_novelty():
     """End-to-end orchestration: cue fields are computed by the new code path
     (loudness anchor + novelty) and present in the output dict.
     """
-    candidates = sorted(FIXTURES.glob("*.wav"))
-    if not candidates:
-        import pytest
-        pytest.skip("No WAV fixture available for end-to-end check.")
-    out = analyze_track(candidates[0])
+    out = analyze_track(FIXTURES / "click_120bpm.wav")
     # No error from decode.
     assert "error" not in out
     # All four cue fields are present, ordered: cue_in <= intro_end <= outro_start <= cue_out.
@@ -75,5 +71,6 @@ def test_analyze_emits_cue_fields_consistent_with_novelty():
     intro_end = out["intro_end_seconds"]
     outro_start = out["outro_start_seconds"]
     cue_out = out["cue_out_seconds"]
-    assert cue_in <= intro_end <= outro_start + 0.01  # tolerate equality at the midpoint clamp
-    assert outro_start <= cue_out + 0.01
+    # The midpoint clamp produces exact equality; allow only float round-trip tolerance.
+    assert cue_in <= intro_end <= outro_start + 1e-6
+    assert outro_start <= cue_out + 1e-6

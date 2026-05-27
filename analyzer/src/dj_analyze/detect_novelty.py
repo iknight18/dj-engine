@@ -29,6 +29,9 @@ class NoveltyResult:
                                   # (floor is from prominence threshold 1*MAD / normalisation by 4*MAD)
 
 
+_EMPTY_NOVELTY = NoveltyResult(peaks_seconds=[], peak_strengths=[], confidence=0.0)
+
+
 def detect_novelty(
     audio: np.ndarray,
     sr: int,
