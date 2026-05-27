@@ -18,12 +18,20 @@ pub enum Curve {
 }
 
 impl Curve {
+    /// Evaluate the curve at `t` in `[0, 1]`. Result is a normalized progression
+    /// from `from` toward `to` (caller computes `from + (to-from) * eval(t)`):
+    /// `eval(0) = 0` means "value is `from`"; `eval(1) = 1` means "value is `to`".
+    ///
+    /// `EqualPowerIn` and `EqualPowerOut` are the pair that satisfies
+    /// `gain_in² + gain_out² = 1` when used with `from=0 to=1` and `from=1 to=0`
+    /// respectively. The shapes are sine-progression for In and "1-cos"
+    /// progression for Out, which produce sine-gain and cosine-gain respectively.
     pub fn eval(self, t: f64) -> f64 {
         let t = t.clamp(0.0, 1.0);
         match self {
             Curve::Linear => t,
             Curve::EqualPowerIn => (t * FRAC_PI_2).sin(),
-            Curve::EqualPowerOut => (t * FRAC_PI_2).cos(),
+            Curve::EqualPowerOut => 1.0 - (t * FRAC_PI_2).cos(),
             Curve::Step => {
                 if t >= 1.0 {
                     1.0

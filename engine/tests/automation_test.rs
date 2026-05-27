@@ -51,10 +51,13 @@ fn curve_equal_power_in() {
 
 #[test]
 fn curve_equal_power_out() {
-    assert!((Curve::EqualPowerOut.eval(0.0) - 1.0).abs() < EPS);
-    assert!((Curve::EqualPowerOut.eval(1.0) - 0.0).abs() < EPS);
+    // EqualPowerOut is a 0->1 progression with shape "1 - cos(t*π/2)".
+    // When sample_value uses from=1.0 to=0.0, the resulting GAIN is cos(t·π/2).
+    assert!((Curve::EqualPowerOut.eval(0.0) - 0.0).abs() < EPS);
+    assert!((Curve::EqualPowerOut.eval(1.0) - 1.0).abs() < EPS);
     let mid = Curve::EqualPowerOut.eval(0.5);
-    assert!((mid - FRAC_1_SQRT_2).abs() < 1e-12);
+    // 1 - cos(π/4) = 1 - sqrt(2)/2
+    assert!((mid - (1.0 - FRAC_1_SQRT_2)).abs() < 1e-12);
 }
 
 #[test]
@@ -66,14 +69,58 @@ fn curve_step_jumps_at_one() {
 }
 
 #[test]
-fn curve_equal_power_sum_is_constant_power() {
-    // sin^2 + cos^2 == 1
-    for i in 0..=10 {
-        let t = i as f64 / 10.0;
-        let a = Curve::EqualPowerIn.eval(t);
-        let b = Curve::EqualPowerOut.eval(t);
-        assert!((a * a + b * b - 1.0).abs() < 1e-12, "t={t}");
+fn equal_power_pair_sums_to_constant_power_via_gains() {
+    // Equal-power requires gain_in² + gain_out² = 1 across the crossfade. The
+    // user-visible contract is the GAIN (what `sample_value` returns), not the
+    // raw curve eval. Pair EqualPowerIn (0->1) with EqualPowerOut (1->0).
+    let auto_in = Automation {
+        target: AutomationTarget::Fader,
+        t_start_frames: 0,
+        t_end_frames: 100,
+        from: 0.0,
+        to: 1.0,
+        curve: Curve::EqualPowerIn,
+    };
+    let auto_out = Automation {
+        target: AutomationTarget::Fader,
+        t_start_frames: 0,
+        t_end_frames: 100,
+        from: 1.0,
+        to: 0.0,
+        curve: Curve::EqualPowerOut,
+    };
+    for cursor in 0..100 {
+        let g_in = auto_in.sample_value(cursor).unwrap();
+        let g_out = auto_out.sample_value(cursor).unwrap();
+        assert!(
+            (g_in * g_in + g_out * g_out - 1.0).abs() < 1e-12,
+            "cursor={cursor} g_in={g_in} g_out={g_out}"
+        );
     }
+}
+
+#[test]
+fn equal_power_out_gain_endpoints() {
+    let auto_out = Automation {
+        target: AutomationTarget::Fader,
+        t_start_frames: 0,
+        t_end_frames: 100,
+        from: 1.0,
+        to: 0.0,
+        curve: Curve::EqualPowerOut,
+    };
+    let g0 = auto_out.sample_value(0).unwrap();
+    assert!(
+        (g0 - 1.0).abs() < EPS,
+        "fade-out gain at t=0 should be 1.0, got {g0}"
+    );
+    let g_mid = auto_out.sample_value(50).unwrap();
+    assert!(
+        (g_mid - FRAC_1_SQRT_2).abs() < 1e-12,
+        "fade-out gain at midpoint should be sqrt(2)/2"
+    );
+    // sample_value returns None at t=t_end; AutomationQueue::step applies `to`.
+    assert!(auto_out.sample_value(100).is_none());
 }
 
 #[test]
