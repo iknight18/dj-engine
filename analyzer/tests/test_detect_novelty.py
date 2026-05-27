@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from dj_analyze.detect_downbeats import compute_chroma_ssm
 from dj_analyze.detect_novelty import NoveltyResult, detect_novelty
@@ -75,7 +74,7 @@ def test_detect_novelty_accepts_precomputed_ssm():
     ssm = compute_chroma_ssm(audio, sr, beats)
     r1 = detect_novelty(audio, sr, beats=beats)
     r2 = detect_novelty(audio, sr, beats=beats, chroma_ssm=ssm)
-    assert r1.peaks_seconds == pytest.approx(r2.peaks_seconds, abs=0.01)
+    assert r1.peaks_seconds == r2.peaks_seconds
     assert abs(r1.confidence - r2.confidence) < 1e-6
 
 
@@ -83,5 +82,14 @@ def test_detect_novelty_empty_beats_returns_empty():
     sr = 22050
     audio = np.zeros(sr * 5, dtype=np.float32)
     result = detect_novelty(audio, sr, beats=[])
+    assert result.peaks_seconds == []
+    assert result.confidence == 0.0
+
+
+def test_detect_novelty_silent_audio_with_valid_beats_returns_empty():
+    sr = 22050
+    audio = np.zeros(sr * 32, dtype=np.float32)
+    beats = _beats_for(32.0)
+    result = detect_novelty(audio, sr, beats=beats)
     assert result.peaks_seconds == []
     assert result.confidence == 0.0

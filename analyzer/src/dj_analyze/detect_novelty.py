@@ -25,7 +25,8 @@ NOVELTY_MIN_PEAK_DISTANCE_BEATS = 8
 class NoveltyResult:
     peaks_seconds: list[float]    # sorted; one entry per accepted peak
     peak_strengths: list[float]   # parallel to peaks_seconds
-    confidence: float             # 0..1; how clearly the strongest peak rises above the noise floor
+    confidence: float             # 0.0 (no peaks) or in [0.25, 1.0] when peaks found
+                                  # (floor is from prominence threshold 1*MAD / normalisation by 4*MAD)
 
 
 def detect_novelty(
@@ -51,7 +52,11 @@ def detect_novelty(
     if len(beats) < 4 or len(audio) < sr:
         return NoveltyResult(peaks_seconds=[], peak_strengths=[], confidence=0.0)
 
-    chroma = chroma_ssm if chroma_ssm is not None else compute_chroma_ssm(audio, sr, beats)
+    try:
+        chroma = chroma_ssm if chroma_ssm is not None else compute_chroma_ssm(audio, sr, beats)
+    except Exception:
+        # Silent audio or other librosa parameter errors -> treat as no usable structure.
+        return NoveltyResult(peaks_seconds=[], peak_strengths=[], confidence=0.0)
     if chroma is None or chroma.shape[0] < NOVELTY_KERNEL_BEATS:
         return NoveltyResult(peaks_seconds=[], peak_strengths=[], confidence=0.0)
 
@@ -72,8 +77,15 @@ def detect_novelty(
 
     # Each novelty index corresponds to a beat index (the kernel is centered at the beat).
     # peak_indices is into the novelty array which is indexed by beat. Convert to seconds.
-    peaks_seconds = [float(beats[min(i, len(beats) - 1)]) for i in peak_indices]
-    peak_strengths = [float(s) for s in strengths]
+    pairs = sorted(
+        (
+            (float(beats[min(i, len(beats) - 1)]), float(s))
+            for i, s in zip(peak_indices, strengths)
+        ),
+        key=lambda ps: ps[0],
+    )
+    peaks_seconds = [p for p, _ in pairs]
+    peak_strengths = [s for _, s in pairs]
 
     # Confidence: how high the strongest peak rises above the median of the whole curve,
     # expressed in MADs, clipped to [0, 1].
@@ -105,6 +117,10 @@ def _compute_onset_ssm(audio: np.ndarray, sr: int, beats: list[float]) -> np.nda
         onset_sync = onset_sync[np.newaxis, :]
     if onset_sync.shape[1] < 4:
         return None
+    # Silent audio yields all-zero onset_sync; librosa.segment.cross_similarity
+    # raises on the empty-graph case. Bail out cleanly.
+    if not np.any(onset_sync):
+        return None
     # Cosine-similarity affinity matrix.
     if hasattr(librosa.segment, "cross_similarity"):
         sim = librosa.segment.cross_similarity(onset_sync, onset_sync, mode="affinity")
@@ -133,6 +149,8 @@ def _foote_kernel(size_beats: int) -> np.ndarray:
 
 def _compute_novelty_curve(fused_ssm: np.ndarray, kernel_size: int) -> np.ndarray:
     """Slide the Foote kernel along the main diagonal; produce a 1-D novelty curve.
+
+    Returns a zero-length array when ``fused_ssm`` has fewer rows than ``kernel_size``.
 
     The first and last ``half`` beat positions are left at zero (boundary guard)
     to prevent Foote kernel edge-effects from producing spurious high-confidence peaks
