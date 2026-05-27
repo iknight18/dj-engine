@@ -128,3 +128,32 @@ impl Deck {
         self.source_end_seconds = f64::INFINITY;
     }
 }
+
+use crate::library::LoadedTrack;
+use std::path::PathBuf;
+
+impl Deck {
+    /// Load a track and spawn the decoder positioned at `source_start_seconds`.
+    /// After this call: Cueing, fader=0, tempo=1.0 (caller sets tempo via automation).
+    pub async fn cue(
+        &mut self,
+        track: LoadedTrack,
+        source_start_seconds: f64,
+    ) -> Result<()> {
+        let path: PathBuf = track.sidecar.source_path.clone().into();
+        let cue_out = track
+            .sidecar
+            .cue_out_seconds
+            .unwrap_or(track.sidecar.duration_seconds.unwrap_or(f64::INFINITY));
+        let decoder = PlayingDecoder::spawn(&path, source_start_seconds, cue_out).await?;
+        self.sources.clear();
+        self.sources.push_back(DeckSource::Decoder(decoder));
+        self.state.source_path = Some(track.sidecar.source_path.clone());
+        self.state.play_state = PlayState::Cueing;
+        self.state.fader = 0.0;
+        self.state.tempo = 1.0;
+        self.source_position_seconds = source_start_seconds;
+        self.source_end_seconds = cue_out;
+        Ok(())
+    }
+}
