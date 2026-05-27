@@ -50,13 +50,13 @@ def analyze_track(path: Path) -> dict[str, Any]:
     )
 
     key_result = detect_key(audio, sr)
-    energy_curve, energy_mean = detect_energy(audio, sr)
+    energy = detect_energy(audio, sr)
     bands = detect_band_energies(audio, sr)
     cues = detect_cues(
         duration_seconds=duration,
         beats=beats,
         downbeats=db_result.downbeats,
-        energy_curve=energy_curve,
+        energy_curve=energy.curve,
         bpm=bpm,
     )
     mix = classify(
@@ -80,8 +80,8 @@ def analyze_track(path: Path) -> dict[str, Any]:
         "key": key_result.camelot,
         "key_label": key_result.label,
         "key_confidence": float(key_result.confidence),
-        "energy_curve": energy_curve,
-        "energy_mean": float(energy_mean),
+        "energy_curve": energy.curve,
+        "energy_mean": float(energy.mean),
         "band_energy_curves": bands["curves"],
         "band_energy_means": bands["means"],
         **cues,
