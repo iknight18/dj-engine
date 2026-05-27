@@ -97,3 +97,27 @@ async fn play_transitions_to_playing() {
     d.play();
     assert_eq!(d.state().play_state, PlayState::Playing);
 }
+
+#[tokio::test]
+async fn pull_playing_produces_nonzero_with_fader_unity() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.play();
+    // Manually set fader=1.0 (Task 13 adds automation-driven setting).
+    // We use the test helper added below to poke state.
+    d.test_set_fader(1.0);
+    let pcm = d.pull(4096).await.unwrap();
+    assert_eq!(pcm.len(), 4096 * 2);
+    let energy: f32 = pcm.iter().map(|s| s.abs()).sum();
+    assert!(energy > 1.0, "expected non-trivial audio, got energy {energy}");
+}
+
+#[tokio::test]
+async fn pull_playing_with_fader_zero_returns_silence() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0).await.unwrap();
+    d.play();
+    // fader stays at 0.0 (its initial value)
+    let pcm = d.pull(4096).await.unwrap();
+    assert!(pcm.iter().all(|s| *s == 0.0));
+}
