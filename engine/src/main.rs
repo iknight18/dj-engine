@@ -112,8 +112,28 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         };
+        info!(
+            current = %short_name(&current.sidecar.source_path),
+            current_bpm = current.sidecar.bpm.unwrap_or(0.0),
+            current_key = current.sidecar.key.as_deref().unwrap_or("?"),
+            current_energy = current.sidecar.energy_mean.unwrap_or(0.0),
+            next = %short_name(&next_track.sidecar.source_path),
+            next_bpm = next_track.sidecar.bpm.unwrap_or(0.0),
+            next_key = next_track.sidecar.key.as_deref().unwrap_or("?"),
+            next_energy = next_track.sidecar.energy_mean.unwrap_or(0.0),
+            "selector picked"
+        );
 
         let plan = dj_engine::transition::plan_transition(&current.sidecar, &next_track.sidecar);
+        let planned_type = transition_type_label(plan.length_bars, plan.use_eq_swap);
+        info!(
+            from = %short_name(&current.sidecar.source_path),
+            to = %short_name(&next_track.sidecar.source_path),
+            planned_type,
+            length_bars = plan.length_bars,
+            use_eq_swap = plan.use_eq_swap,
+            "transition plan"
+        );
 
         // Play current track until its outro_start. The deck's actual source
         // position may NOT be at cue_in (it likely entered as incoming in the
@@ -127,10 +147,44 @@ async fn main() -> anyhow::Result<()> {
             * dj_engine::ffmpeg::SAMPLE_RATE as f64)
             / tempo) as u64;
         let outro_deadline = mixer.master_clock_frames() + frames_until_outro;
+        info!(
+            track = %short_name(&current.sidecar.source_path),
+            deck = ?current_deck,
+            source_pos_seconds = current_source,
+            outro_start_seconds = outro_start,
+            tempo,
+            wait_seconds = frames_until_outro as f64 / dj_engine::ffmpeg::SAMPLE_RATE as f64,
+            "playing master deck until outro_start"
+        );
         dj_engine::mixer::tick_until(&mut mixer, outro_deadline).await?;
 
         // Arm the transition.
         let choice = dj_engine::recipe::pick_recipe(&plan);
+        let recipe_name: &str = match choice {
+            dj_engine::recipe::RecipeChoice::EqualPower => "equal_power_crossfade",
+            dj_engine::recipe::RecipeChoice::HardCut => "hard_cut",
+        };
+        let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let transition_start_master = mixer.master_clock_frames();
+        let transition_type = transition_type_label(plan.length_bars, plan.use_eq_swap);
+        info!(
+            outgoing = %short_name(&current.sidecar.source_path),
+            incoming = %short_name(&next_track.sidecar.source_path),
+            outgoing_deck = ?current_deck,
+            incoming_deck = ?other_deck,
+            transition_type,
+            recipe = recipe_name,
+            length_bars = plan.length_bars,
+            use_eq_swap = plan.use_eq_swap,
+            ratio,
+            outgoing_outro_start = plan.outgoing_crossfade_start_seconds,
+            incoming_intro_end = plan.incoming_crossfade_start_seconds,
+            t_start_frames = transition_start_master,
+            "transition arming"
+        );
+
         let handle = match choice {
             dj_engine::recipe::RecipeChoice::EqualPower => {
                 dj_engine::scheduler::TransitionScheduler::arm(
@@ -164,6 +218,19 @@ async fn main() -> anyhow::Result<()> {
         // Unload outgoing, swap roles.
         mixer.deck(current_deck).unload().await;
         std::mem::swap(&mut current_deck, &mut other_deck);
+        let transition_duration_seconds = (handle.end_master_clock_frames - transition_start_master)
+            as f64
+            / dj_engine::ffmpeg::SAMPLE_RATE as f64;
+        info!(
+            outgoing = %short_name(&current.sidecar.source_path),
+            incoming = %short_name(&next_track.sidecar.source_path),
+            master_deck_now = ?current_deck,
+            duration_seconds = transition_duration_seconds,
+            recipe = handle.recipe_name,
+            transition_type,
+            "transition complete"
+        );
+
         recency.record(next_track.sidecar.source_path.clone());
         energy.advance();
         icecast_meta::update_now_playing(&http, &metadata_cfg, &next_track.sidecar.source_path)
@@ -173,6 +240,32 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = writer_task.await;
     Ok(())
+}
+
+/// Last path component of a source path. Used to keep log lines short.
+fn short_name(source_path: &str) -> &str {
+    source_path
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(source_path)
+}
+
+/// Human-readable label for the transition variant a `TransitionPlan` represents.
+/// `length_bars` is the canonical signal: 0 = hard cut, 8 = quick cut, 16 = standard
+/// blend, 32 = long blend. `use_eq_swap=true` would have triggered the bass-swap
+/// variant in the pre-refactor engine; sub-project 1 emits a plain equal-power
+/// crossfade either way and we log the intent.
+fn transition_type_label(length_bars: usize, use_eq_swap: bool) -> &'static str {
+    match (length_bars, use_eq_swap) {
+        (0, _) => "hard_cut",
+        (8, false) => "quick_cut",
+        (8, true) => "quick_cut_with_eq_swap_intended",
+        (16, false) => "standard_blend",
+        (16, true) => "standard_blend_with_eq_swap_intended",
+        (32, false) => "long_blend",
+        (32, true) => "long_blend_with_eq_swap_intended",
+        _ => "custom_blend",
+    }
 }
 
 fn pick_seed(library: &[LoadedTrack], requested: Option<&str>) -> LoadedTrack {

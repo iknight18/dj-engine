@@ -38,6 +38,19 @@ impl TransitionScheduler {
         // 1) Cue the incoming deck at the BPM-match tempo so its decoder
         //    actually time-stretches and its source-position tracking stays
         //    consistent with the playback rate.
+        tracing::info!(
+            deck = ?incoming_deck,
+            track = %incoming
+                .sidecar
+                .source_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&incoming.sidecar.source_path),
+            cue_source_seconds = cue_start,
+            tempo = ratio,
+            cue_headroom_seconds,
+            "scheduler cueing incoming"
+        );
         mixer
             .deck(incoming_deck)
             .cue(incoming.clone(), cue_start, ratio)

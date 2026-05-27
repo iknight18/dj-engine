@@ -1,6 +1,5 @@
 //! Mixer: ticks two persistent decks, sums their PCM, pushes to the ring.
 
-use tracing::info;
 
 use crate::buffer::{Producer, SampleProducer};
 use crate::deck::{Deck, DeckId};
@@ -82,6 +81,6 @@ pub async fn tick_until(mixer: &mut Mixer, end_frames: u64) -> Result<()> {
     while mixer.master_clock_frames() < end_frames {
         mixer.tick().await?;
     }
-    info!(end = end_frames, "tick_until complete");
+    tracing::debug!(end = end_frames, "tick_until complete");
     Ok(())
 }
