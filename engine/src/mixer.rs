@@ -1,6 +1,5 @@
 //! Mixer: ticks two persistent decks, sums their PCM, pushes to the ring.
 
-
 use crate::buffer::{Producer, SampleProducer};
 use crate::deck::{Deck, DeckId};
 use crate::error::Result;
