@@ -41,19 +41,37 @@ def detect_cues(
     """Compute cue_in, cue_out, intro_end, outro_start (seconds).
 
     cue_in/out are anchored by the loudness floor (max - 9 dB) snapped to downbeats.
-    intro_end/outro_start use the +/- 16 bars heuristic for now (novelty-driven
-    placement is Task 5; long-track shortening is Task 6).
+    intro_end is the earliest novelty peak in [cue_in + MIN_INTRO, cue_in + MAX_INTRO]
+    snapped to the nearest downbeat; falls back to cue_in + 16 bars when no usable
+    peak or when novelty_confidence < NOVELTY_CONFIDENCE_THRESHOLD.
+    outro_start is the latest peak in the symmetric window before cue_out, falling
+    back to cue_out - 16 bars on the same conditions.
+    (Long-track shortening is still Task 6.)
     """
     cue_in, cue_out = _loudness_anchor_cues(
         duration_seconds, downbeats, rms_db_curve, max_rms_db
     )
 
-    # intro_end / outro_start computed in Task 5; for now retain old +/- 16 bars heuristic.
+    # intro_end / outro_start: prefer novelty peaks; fall back to +/- 16 bars.
     bar_seconds = (60.0 / bpm) * 4.0 if bpm > 0 else 2.0
-    intro_end = cue_in + 16.0 * bar_seconds
-    outro_start = cue_out - 16.0 * bar_seconds
+    intro_end = _structural_intro_end(
+        cue_in=cue_in,
+        cue_out=cue_out,
+        bar_seconds=bar_seconds,
+        novelty_peaks=novelty_peaks,
+        novelty_confidence=novelty_confidence,
+        downbeats=downbeats,
+    )
+    outro_start = _structural_outro_start(
+        cue_in=cue_in,
+        cue_out=cue_out,
+        bar_seconds=bar_seconds,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        novelty_confidence=novelty_confidence,
+        downbeats=downbeats,
+    )
 
-    # Clamp.
     if intro_end > outro_start:
         midpoint = (cue_in + cue_out) / 2.0
         intro_end = midpoint
@@ -129,3 +147,52 @@ def _snap_nearest_downbeat(t: float, downbeats: Sequence[float], fallback: float
     if not downbeats:
         return float(fallback)
     return float(min(downbeats, key=lambda db: abs(db - t)))
+
+
+def _structural_intro_end(
+    *,
+    cue_in: float,
+    cue_out: float,
+    bar_seconds: float,
+    novelty_peaks: list[float],
+    novelty_confidence: float,
+    downbeats: Sequence[float],
+) -> float:
+    """First novelty peak in [cue_in + MIN_INTRO, cue_in + MAX_INTRO], snapped to downbeat.
+    Falls back to cue_in + 16 bars when no peak in window or confidence too low.
+    """
+    fallback = cue_in + 16.0 * bar_seconds
+    if novelty_confidence < NOVELTY_CONFIDENCE_THRESHOLD:
+        return fallback
+    lo = cue_in + MIN_INTRO_SECONDS
+    hi = min(cue_in + MAX_INTRO_SECONDS, cue_out)
+    in_window = [p for p in novelty_peaks if lo <= p <= hi]
+    if not in_window:
+        return fallback
+    chosen = min(in_window)  # earliest peak in window
+    return _snap_nearest_downbeat(chosen, downbeats, fallback=chosen)
+
+
+def _structural_outro_start(
+    *,
+    cue_in: float,
+    cue_out: float,
+    bar_seconds: float,
+    novelty_peaks: list[float],
+    novelty_strengths: list[float],
+    novelty_confidence: float,
+    downbeats: Sequence[float],
+) -> float:
+    """Last novelty peak in [cue_out - MAX_OUTRO, cue_out - MIN_OUTRO], snapped to downbeat.
+    Falls back to cue_out - 16 bars when no peak in window or confidence too low.
+    """
+    fallback = cue_out - 16.0 * bar_seconds
+    if novelty_confidence < NOVELTY_CONFIDENCE_THRESHOLD:
+        return fallback
+    lo = max(cue_out - MAX_OUTRO_SECONDS, cue_in)
+    hi = cue_out - MIN_OUTRO_SECONDS
+    in_window = [p for p in novelty_peaks if lo <= p <= hi]
+    if not in_window:
+        return fallback
+    chosen = max(in_window)  # latest peak in window
+    return _snap_nearest_downbeat(chosen, downbeats, fallback=chosen)

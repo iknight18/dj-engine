@@ -106,3 +106,120 @@ def test_detect_cues_uniform_loudness_uses_full_range():
     # Uniformly loud: cue_in snaps to first downbeat (t=0), cue_out to last (<= duration).
     assert cues["cue_in_seconds"] == pytest.approx(0.0, abs=0.01)
     assert cues["cue_out_seconds"] <= dur + 0.01
+
+
+def test_intro_end_uses_novelty_peak():
+    """A novelty peak at 24s after cue_in -> intro_end snaps to nearest downbeat near 24s."""
+    dur = 200.0
+    novelty_peaks = [24.0, 150.0]
+    novelty_strengths = [0.8, 0.6]
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # intro_end should be within 1 bar (2s at 120 BPM) of 24s.
+    assert abs(cues["intro_end_seconds"] - 24.0) <= 2.0
+
+
+def test_outro_start_uses_last_novelty_peak():
+    """A novelty peak 30s before cue_out -> outro_start snaps to it."""
+    dur = 200.0
+    novelty_peaks = [30.0, 170.0]
+    novelty_strengths = [0.5, 0.8]
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # Last loud window centers near 200s; outro_start should snap to ~170s.
+    assert abs(cues["outro_start_seconds"] - 170.0) <= 2.0
+
+
+def test_intro_end_falls_back_when_no_peak_in_window():
+    """No peak in [cue_in+8, cue_in+60] -> fall back to cue_in + 16 bars."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[5.0, 180.0],  # both outside the [8, 60]s window
+        novelty_strengths=[0.8, 0.8],
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # 16 bars at 120 BPM = 32s. cue_in is 0 here, so intro_end ~= 32s.
+    assert abs(cues["intro_end_seconds"] - 32.0) <= 2.0
+
+
+def test_intro_end_falls_back_when_confidence_low():
+    """Peaks exist but confidence is below threshold -> fall back to +16 bars."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[24.0],
+        novelty_strengths=[0.1],
+        novelty_confidence=0.1,  # below NOVELTY_CONFIDENCE_THRESHOLD
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    assert abs(cues["intro_end_seconds"] - 32.0) <= 2.0  # fallback
+
+
+def test_intro_end_respects_min_guard():
+    """Peak at 4s (below MIN_INTRO=8) is ignored."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[4.0, 40.0],
+        novelty_strengths=[0.8, 0.8],
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # First peak 4s ignored (under MIN_INTRO=8). 40s peak used.
+    assert abs(cues["intro_end_seconds"] - 40.0) <= 2.0
+
+
+def test_intro_end_respects_max_guard():
+    """Peak at 90s (above MAX_INTRO=60) is ignored; falls back."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[90.0],
+        novelty_strengths=[0.8],
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # 90s above MAX_INTRO; fall back to +16 bars (~32s).
+    assert abs(cues["intro_end_seconds"] - 32.0) <= 2.0
