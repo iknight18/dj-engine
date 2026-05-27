@@ -12,9 +12,20 @@ use crate::sidecar::Sidecar;
 /// Returns an empty Vec if there are no downbeats or the body is too short.
 pub fn phrase_boundaries(sc: &Sidecar, phrase_bars: usize) -> Vec<f64> {
     // Prefer explicit sidecar-set boundaries (v2 analyzer with phrase confidence above threshold).
+    // Filter them by intro_end/outro_start so we never snap a transition into the intro or
+    // outro — same constraint as the heuristic fallback path below.
     if let Some(explicit) = &sc.phrase_boundaries_seconds {
         if !explicit.is_empty() {
-            return explicit.clone();
+            let intro_end = sc.intro_end_seconds.unwrap_or(0.0);
+            let outro_start = sc.outro_start_seconds.unwrap_or(f64::INFINITY);
+            let filtered: Vec<f64> = explicit
+                .iter()
+                .copied()
+                .filter(|b| *b >= intro_end && *b < outro_start)
+                .collect();
+            if !filtered.is_empty() {
+                return filtered;
+            }
         }
     }
     if phrase_bars == 0 || sc.downbeats_seconds.is_empty() {

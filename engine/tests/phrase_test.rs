@@ -109,3 +109,33 @@ fn empty_sidecar_phrase_boundaries_falls_back_to_heuristic() {
     let bounds = phrase_boundaries(&sc, 4);
     assert_eq!(bounds, vec![0.0]);
 }
+
+#[test]
+fn sidecar_boundaries_filtered_by_intro_end_and_outro_start() {
+    // Simulates the 006-song.mp3 case: explicit phrase boundaries from the analyzer
+    // start at 7.1s but intro_end is 32.4s — the engine should NOT crossfade into
+    // the intro. Boundaries inside the intro must be filtered out.
+    let mut sc = make_sc(vec![], 32.4, 154.7);
+    sc.phrase_boundaries_seconds = Some(vec![
+        7.1, 13.5, 19.9, 26.3, 32.7, 39.1, 45.5, 51.9, 58.3, 154.7, 160.0,
+    ]);
+    sc.is_phrase_aligned = Some(true);
+    let bounds = phrase_boundaries(&sc, 16);
+    // 7.1, 13.5, 19.9, 26.3 are before intro_end=32.4 → filtered out.
+    // 154.7 is at outro_start → filtered out (strict <).
+    // 160.0 is past outro_start → filtered out.
+    // 32.7, 39.1, 45.5, 51.9, 58.3 → kept.
+    assert_eq!(bounds, vec![32.7, 39.1, 45.5, 51.9, 58.3]);
+}
+
+#[test]
+fn sidecar_boundaries_all_filtered_falls_back_to_heuristic() {
+    // If every explicit boundary is inside the intro, the function should fall through
+    // to the heuristic path rather than returning an empty list.
+    let mut sc = make_sc(vec![40.0, 41.0, 42.0, 43.0], 40.0, 60.0);
+    sc.phrase_boundaries_seconds = Some(vec![1.0, 2.0, 3.0]); // all pre-intro
+    let bounds = phrase_boundaries(&sc, 4);
+    // Heuristic kicks in: anchor at downbeat at/after intro_end=40 → index 0 (40.0),
+    // step by 4 → only index 0 is in range.
+    assert_eq!(bounds, vec![40.0]);
+}
