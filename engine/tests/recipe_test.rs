@@ -1,6 +1,8 @@
 use dj_engine::automation::{AutomationTarget, Curve};
 use dj_engine::library::LoadedTrack;
-use dj_engine::recipe::{DeckId, EqualPowerCrossfade, Recipe, TransitionContext};
+use dj_engine::recipe::{
+    pick_recipe, DeckId, EqualPowerCrossfade, HardCut, Recipe, RecipeChoice, TransitionContext,
+};
 use dj_engine::sidecar::Sidecar;
 use dj_engine::transition::TransitionPlan;
 use std::path::PathBuf;
@@ -142,4 +144,62 @@ fn equal_power_crossfade_length_matches_plan() {
     let expected_frames = (plan.length_bars as f64 * bar_seconds * SR as f64) as u64;
     let out_fader = &r.outgoing_automations[0];
     assert_eq!(out_fader.t_end_frames - out_fader.t_start_frames, expected_frames);
+}
+
+#[test]
+fn hard_cut_emits_step_automations() {
+    let outgoing = track(120.0);
+    let incoming = track(120.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 0,
+        use_eq_swap: false,
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &plan,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let r = HardCut.build(&ctx);
+    assert_eq!(r.outgoing_automations.len(), 1);
+    assert_eq!(r.outgoing_automations[0].curve, Curve::Step);
+    assert!(r
+        .incoming_automations
+        .iter()
+        .any(|a| a.target == AutomationTarget::Fader && a.curve == Curve::Step));
+}
+
+#[test]
+fn pick_recipe_chooses_hard_cut_for_zero_bars() {
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 0.0,
+        incoming_crossfade_start_seconds: 0.0,
+        length_bars: 0,
+        use_eq_swap: false,
+    };
+    assert_eq!(pick_recipe(&plan), RecipeChoice::HardCut);
+}
+
+#[test]
+fn pick_recipe_chooses_equal_power_for_nonzero_bars() {
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 0.0,
+        incoming_crossfade_start_seconds: 0.0,
+        length_bars: 16,
+        use_eq_swap: false,
+    };
+    assert_eq!(pick_recipe(&plan), RecipeChoice::EqualPower);
+
+    let plan_eq = TransitionPlan {
+        outgoing_crossfade_start_seconds: 0.0,
+        incoming_crossfade_start_seconds: 0.0,
+        length_bars: 16,
+        use_eq_swap: true, // sub-project 1 still picks EqualPower; EQ swap added later
+    };
+    assert_eq!(pick_recipe(&plan_eq), RecipeChoice::EqualPower);
 }
