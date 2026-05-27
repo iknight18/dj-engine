@@ -59,9 +59,23 @@ async fn execute_crossfade(
     let incoming_path: std::path::PathBuf = incoming.sidecar.source_path.clone().into();
 
     // Pre-fetch a stretched window around the incoming crossfade-start point.
-    // We grab from start - 1 bar (small head room) to start + length_bars (the crossfade region).
+    // We grab from start - 1 bar (small head room) to start + crossfade + 1 bar of post-roll
+    // (used to bridge ffmpeg subprocess startup latency on the new playing decoder).
     let stretched_start = (plan.incoming_crossfade_start_seconds - bar_seconds).max(0.0);
     let stretched_end = plan.incoming_crossfade_start_seconds + crossfade_seconds + bar_seconds;
+
+    // Start spawning the new playing decoder NOW, in parallel with the stretched decode
+    // and the rest of the crossfade work. ffmpeg has a 100-500 ms startup cost (process
+    // spawn + accurate seek decode-and-discard). By the time we're done pushing the
+    // crossfade + post-roll, the new decoder is ready with audio buffered in its pipe —
+    // no silence gap when we hand off.
+    let new_start = stretched_end;
+    let cue_out = incoming.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY);
+    let new_decoder_task = {
+        let path = incoming_path.clone();
+        tokio::spawn(async move { PlayingDecoder::spawn(&path, new_start, cue_out).await })
+    };
+
     let stretched = decode_stretched(&incoming_path, stretched_start, stretched_end, ratio).await?;
 
     // The crossfade audio inside `stretched` starts at offset (incoming_crossfade_start - stretched_start)
@@ -126,6 +140,15 @@ async fn execute_crossfade(
     };
     push_all(producer, &mixed).await;
 
+    // 4) Push the post-crossfade tail from the stretched buffer (1 bar, the headroom we
+    // pre-decoded). This bridges the seam between the crossfade audio and the new playing
+    // decoder's first samples without silence — and at ratio=1.0 (same BPM, atempo
+    // bypassed) the splice is sample-continuous because both halves used accurate seek.
+    let post_crossfade_start = (offset_samples + crossfade_samples).min(stretched.len());
+    if post_crossfade_start < stretched.len() {
+        push_all(producer, &stretched[post_crossfade_start..]).await;
+    }
+
     info!(
         outgoing = %outgoing.sidecar.source_path,
         incoming = %incoming.sidecar.source_path,
@@ -134,10 +157,12 @@ async fn execute_crossfade(
         "crossfade complete"
     );
 
-    // 4) Spawn the new playing decoder past the crossfade region on the incoming side.
-    let new_start = plan.incoming_crossfade_start_seconds + crossfade_seconds;
-    let cue_out = incoming.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY);
-    let new_decoder = PlayingDecoder::spawn(&incoming_path, new_start, cue_out).await?;
+    // 5) Collect the pre-spawned new decoder — by now it's been starting up in parallel
+    // for the duration of the stretched decode + streaming + crossfade, so its first
+    // samples are buffered in the OS pipe and ready to read.
+    let new_decoder = new_decoder_task
+        .await
+        .map_err(|e| crate::error::EngineError::Ffmpeg(format!("decoder task join: {e}")))??;
     Ok(new_decoder)
 }
 

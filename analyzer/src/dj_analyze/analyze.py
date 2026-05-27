@@ -43,8 +43,11 @@ def analyze_track(path: Path) -> dict[str, Any]:
     beats = detect_beats(audio, sr, bpm=bpm)
     db_result = detect_downbeats(audio, sr, beats=beats)
 
-    # Always compute phrase boundaries explicitly so we can emit them + confidence.
-    phrase_result = detect_phrases(audio, sr, beats=beats, phrase_bars=4) if beats else None
+    # 16-bar phrase boundaries: the engine snaps transitions to these so they land
+    # on structural moments (verse/chorus/drop) rather than every bar.
+    phrase_result = (
+        detect_phrases(audio, sr, beats=beats, output_stride_bars=16) if beats else None
+    )
 
     key_result = detect_key(audio, sr)
     energy_curve, energy_mean = detect_energy(audio, sr)

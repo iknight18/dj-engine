@@ -36,10 +36,22 @@ def test_force_fallback_when_no_audio_returns_4_4() -> None:
 def test_detect_phrases_on_clean_click_returns_high_confidence_and_boundaries() -> None:
     """Click track has a perfect repeating 1-bar pattern, should pass confidence threshold."""
     audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
-    beats = [0.5 * i for i in range(16)]  # 16 beats at 120 BPM
-    result = detect_phrases(audio, sr, beats=beats, phrase_bars=4)
+    beats = [0.5 * i for i in range(16)]  # 16 beats at 120 BPM = 4 bars
+    # output_stride_bars=1: 4-beat stride, the click yields multiple boundaries.
+    result = detect_phrases(audio, sr, beats=beats, output_stride_bars=1)
     assert result.confidence > 0.3, f"expected confidence > 0.3, got {result.confidence}"
     assert len(result.boundaries) >= 2
+
+
+def test_detect_phrases_16_bar_stride_yields_fewer_boundaries() -> None:
+    """The default stride emits boundaries every 16 bars (64 beats) — on a short
+    click track that's at most one boundary."""
+    audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
+    beats = [0.5 * i for i in range(16)]  # only 16 beats total
+    result = detect_phrases(audio, sr, beats=beats)  # default output_stride_bars=16
+    # With stride 64 beats and only 16 beats of audio, we get at most one boundary
+    # (the anchor itself).
+    assert len(result.boundaries) <= 1
 
 
 def test_detect_phrases_on_noise_returns_low_confidence_no_boundaries() -> None:
@@ -49,13 +61,24 @@ def test_detect_phrases_on_noise_returns_low_confidence_no_boundaries() -> None:
     rng = np.random.default_rng(seed=42)
     audio = rng.uniform(-0.5, 0.5, size=44100 * 4).astype(np.float32)  # 4s of noise
     beats = [0.5 * i for i in range(8)]
-    result = detect_phrases(audio, sr=44100, beats=beats, phrase_bars=4)
+    result = detect_phrases(audio, sr=44100, beats=beats, output_stride_bars=1)
     # Loose threshold, librosa may find weak similarity in random data.
     assert result.confidence < 0.6, f"expected low confidence on noise, got {result.confidence}"
 
 
 def test_detect_phrases_handles_too_few_beats() -> None:
     audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
-    result = detect_phrases(audio, sr, beats=[0.0, 0.5], phrase_bars=4)
+    result = detect_phrases(audio, sr, beats=[0.0, 0.5], output_stride_bars=1)
     assert result.boundaries == []
     assert result.confidence == 0.0
+
+
+def test_detect_phrases_phrase_bars_legacy_alias_still_works() -> None:
+    """`phrase_bars` is kept as a legacy alias for `output_stride_bars` so existing
+    callers don't silently break."""
+    audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
+    beats = [0.5 * i for i in range(16)]
+    via_legacy = detect_phrases(audio, sr, beats=beats, phrase_bars=1)
+    via_new = detect_phrases(audio, sr, beats=beats, output_stride_bars=1)
+    assert via_legacy.boundaries == via_new.boundaries
+    assert via_legacy.confidence == via_new.confidence
