@@ -269,3 +269,87 @@ def test_outro_start_falls_back_when_confidence_low():
     )
     # Same fallback math as above test.
     assert abs(cues["outro_start_seconds"] - 166.0) <= 4.0
+
+
+def test_short_track_unaffected_by_long_rule():
+    """200s track: long-track rule must not fire."""
+    dur = 200.0
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(400)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 200,
+        bpm=120.0,
+        novelty_peaks=[40.0, 160.0],
+        novelty_strengths=[0.7, 0.7],
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # cue_out from loudness anchor: last loud window <= 200 -> cue_out close to 200s.
+    assert cues["cue_out_seconds"] >= 180.0
+
+
+def test_long_track_shortened_to_strongest_peak_in_window():
+    """480s track with a strong peak at 380s -> cue_out snaps to 380s."""
+    dur = 480.0
+    novelty_peaks = [60.0, 380.0, 460.0]
+    novelty_strengths = [0.5, 0.9, 0.5]
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(960)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 480,
+        bpm=120.0,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # Strongest peak in [330, 420] is 380s (strength 0.9).
+    assert abs(cues["cue_out_seconds"] - 380.0) <= 2.0
+
+
+def test_long_track_no_peak_in_window_falls_to_floor():
+    """480s track with no peaks in [330, 420] -> cue_out = 330s, snapped."""
+    dur = 480.0
+    novelty_peaks = [60.0, 460.0]  # neither in [330, 420]
+    novelty_strengths = [0.5, 0.5]
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(960)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 480,
+        bpm=120.0,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    assert abs(cues["cue_out_seconds"] - 330.0) <= 2.0
+
+
+def test_long_track_outro_start_recomputed_against_new_cue_out():
+    """After cue_out moves, outro_start must be recomputed against the new cue_out."""
+    dur = 480.0
+    # Peak at 360s (used as cue_out) and 340s (would be in outro window of new cue_out).
+    novelty_peaks = [60.0, 340.0, 360.0]
+    novelty_strengths = [0.5, 0.7, 0.9]
+    cues = detect_cues(
+        duration_seconds=dur,
+        beats=[i * 0.5 for i in range(960)],
+        downbeats=_downbeats_for(dur, bpm=120.0),
+        energy_curve=[0.0] * 480,
+        bpm=120.0,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        novelty_confidence=0.9,
+        rms_db_curve=_loud_rms_db_curve(dur),
+        max_rms_db=-6.0,
+    )
+    # cue_out = 360. outro_start window = [360-60, 360-8] = [300, 352].
+    # 340 is in that window; expect outro_start ~= 340.
+    assert abs(cues["cue_out_seconds"] - 360.0) <= 2.0
+    assert abs(cues["outro_start_seconds"] - 340.0) <= 2.0

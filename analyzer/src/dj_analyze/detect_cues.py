@@ -41,15 +41,25 @@ def detect_cues(
     """Compute cue_in, cue_out, intro_end, outro_start (seconds).
 
     cue_in/out are anchored by the loudness floor (max - 9 dB) snapped to downbeats.
-    intro_end is the earliest novelty peak in [cue_in + MIN_INTRO, cue_in + MAX_INTRO]
-    snapped to the nearest downbeat; falls back to cue_in + 16 bars when no usable
-    peak or when novelty_confidence < NOVELTY_CONFIDENCE_THRESHOLD.
-    outro_start is the latest peak in the symmetric window before cue_out, falling
-    back to cue_out - 16 bars on the same conditions.
-    (Long-track shortening is still Task 6.)
+    For tracks longer than LONG_TRACK_THRESHOLD_S, cue_out is moved into the
+    [LONG_TRACK_TARGET_MIN_S, LONG_TRACK_TARGET_MAX_S] window at the strongest
+    novelty peak there (or the floor LONG_TRACK_TARGET_MIN_S if none in range).
+    intro_end / outro_start are placed at novelty peaks within MIN/MAX intro/outro
+    windows, snapped to the nearest downbeat, with a +/- 16 bars fallback when
+    no usable peak is found or novelty_confidence is below NOVELTY_CONFIDENCE_THRESHOLD.
     """
     cue_in, cue_out = _loudness_anchor_cues(
         duration_seconds, downbeats, rms_db_curve, max_rms_db
+    )
+
+    # Long-track shortening (overrides cue_out before intro/outro are computed).
+    cue_out = _shorten_if_long_track(
+        cue_out=cue_out,
+        cue_in=cue_in,
+        duration=duration_seconds,
+        novelty_peaks=novelty_peaks,
+        novelty_strengths=novelty_strengths,
+        downbeats=downbeats,
     )
 
     # intro_end / outro_start: prefer novelty peaks; fall back to +/- 16 bars.
@@ -194,3 +204,36 @@ def _structural_outro_start(
         return fallback
     chosen = max(in_window)  # latest peak in window
     return _snap_nearest_downbeat(chosen, downbeats, fallback=chosen)
+
+
+def _shorten_if_long_track(
+    *,
+    cue_out: float,
+    cue_in: float,
+    duration: float,
+    novelty_peaks: list[float],
+    novelty_strengths: list[float],
+    downbeats: Sequence[float],
+) -> float:
+    """For tracks > LONG_TRACK_THRESHOLD_S, force cue_out into the [LONG_TRACK_TARGET_MIN_S,
+    LONG_TRACK_TARGET_MAX_S] window using the strongest novelty peak in that window;
+    floor at LONG_TRACK_TARGET_MIN_S if no peak is in range.
+
+    Returns the new cue_out (snapped down to nearest downbeat). On short tracks or
+    degenerate cases (snapped value falls before cue_in), returns cue_out unchanged.
+    """
+    if duration <= LONG_TRACK_THRESHOLD_S:
+        return cue_out
+    lo = LONG_TRACK_TARGET_MIN_S
+    hi = LONG_TRACK_TARGET_MAX_S
+    in_window = [
+        (p, s) for p, s in zip(novelty_peaks, novelty_strengths) if lo <= p <= hi
+    ]
+    if in_window:
+        chosen = max(in_window, key=lambda ps: ps[1])[0]
+    else:
+        chosen = lo
+    snapped = _snap_down_to_downbeat(chosen, downbeats, fallback=chosen)
+    if snapped < cue_in:
+        return cue_out
+    return min(snapped, cue_out, duration)
