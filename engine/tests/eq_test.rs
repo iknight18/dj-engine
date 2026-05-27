@@ -45,3 +45,34 @@ fn lowpass_kills_high_frequencies() {
         out_rms / in_rms
     );
 }
+
+#[test]
+fn highpass_passes_high_frequencies() {
+    let sr = 44100.0;
+    let signal = sine(10_000.0, sr, 1.0);
+    let mut filter = Biquad::highpass(sr, 1000.0);
+    let filtered: Vec<f32> = signal.iter().map(|s| filter.process(*s)).collect();
+    let in_rms = rms(&signal[200..]);
+    let out_rms = rms(&filtered[200..]);
+    let ratio_db = 20.0 * (out_rms / in_rms).log10();
+    assert!(
+        ratio_db.abs() < 1.0,
+        "10 kHz should pass through a 1 kHz highpass; got {} dB",
+        ratio_db
+    );
+}
+
+#[test]
+fn highpass_kills_low_frequencies() {
+    let sr = 44100.0;
+    let signal = sine(50.0, sr, 1.0);
+    let mut filter = Biquad::highpass(sr, 1000.0);
+    let filtered: Vec<f32> = signal.iter().map(|s| filter.process(*s)).collect();
+    let in_rms = rms(&signal[200..]);
+    let out_rms = rms(&filtered[200..]);
+    assert!(
+        out_rms < 0.05 * in_rms,
+        "50 Hz signal should be <5% after 1 kHz highpass; got out/in = {}",
+        out_rms / in_rms
+    );
+}

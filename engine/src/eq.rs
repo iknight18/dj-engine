@@ -63,3 +63,35 @@ fn lowpass_coeffs(sample_rate: f64, cutoff_hz: f64) -> (f64, f64, f64, f64, f64)
     let a2 = (1.0 - alpha) / a0;
     (b0, b1, b2, a1, a2)
 }
+
+impl Biquad {
+    pub fn highpass(sample_rate: f64, cutoff_hz: f64) -> Self {
+        let (b0, b1, b2, a1, a2) = highpass_coeffs(sample_rate, cutoff_hz);
+        Self {
+            b0,
+            b1,
+            b2,
+            a1,
+            a2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+}
+
+fn highpass_coeffs(sample_rate: f64, cutoff_hz: f64) -> (f64, f64, f64, f64, f64) {
+    let cutoff = cutoff_hz.clamp(1.0, sample_rate * 0.49);
+    let w0 = 2.0 * std::f64::consts::PI * cutoff / sample_rate;
+    let cos_w0 = w0.cos();
+    let alpha = w0.sin() / (2.0 * Q_BUTTERWORTH);
+    let a0 = 1.0 + alpha;
+
+    let b0 = ((1.0 + cos_w0) / 2.0) / a0;
+    let b1 = (-(1.0 + cos_w0)) / a0;
+    let b2 = ((1.0 + cos_w0) / 2.0) / a0;
+    let a1 = (-2.0 * cos_w0) / a0;
+    let a2 = (1.0 - alpha) / a0;
+    (b0, b1, b2, a1, a2)
+}
