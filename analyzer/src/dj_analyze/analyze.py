@@ -17,7 +17,7 @@ from .detect_cues import detect_cues
 from .detect_downbeats import compute_chroma_ssm, detect_downbeats, detect_phrases
 from .detect_energy import detect_energy
 from .detect_key import detect_key
-from .detect_novelty import _EMPTY_NOVELTY, detect_novelty
+from .detect_novelty import EMPTY_NOVELTY, detect_novelty
 from .mixability import classify
 
 SCHEMA_VERSION = 2
@@ -56,7 +56,7 @@ def analyze_track(path: Path) -> dict[str, Any]:
     novelty = (
         detect_novelty(audio, sr, beats=beats, chroma_ssm=chroma_ssm)
         if beats
-        else _EMPTY_NOVELTY
+        else EMPTY_NOVELTY
     )
 
     key_result = detect_key(audio, sr)

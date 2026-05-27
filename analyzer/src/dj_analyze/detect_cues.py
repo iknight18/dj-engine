@@ -19,7 +19,9 @@ MAX_INTRO_SECONDS = 60.0
 MIN_OUTRO_SECONDS = 8.0
 MAX_OUTRO_SECONDS = 60.0
 
-NOVELTY_CONFIDENCE_THRESHOLD = 0.25  # below this, fall back to +/- 16 bars
+NOVELTY_CONFIDENCE_THRESHOLD = 0.5  # below this, fall back to +/- 16 bars
+                                    # (a peak at exactly 2*MAD above median yields 0.5;
+                                    # the gate filters peaks barely above the noise floor)
 
 LONG_TRACK_THRESHOLD_S = 360.0
 LONG_TRACK_TARGET_MIN_S = 330.0
@@ -202,6 +204,9 @@ def _structural_outro_start(
     in_window = [p for p in novelty_peaks if lo <= p <= hi]
     if not in_window:
         return fallback
+    # outro picks the latest boundary (not the strongest) because a later peak is a
+    # cleaner exit than the most prominent one. _shorten_if_long_track picks by
+    # strength because its window is broader and the floor fallback is harmless.
     chosen = max(in_window)  # latest peak in window
     return _snap_nearest_downbeat(chosen, downbeats, fallback=chosen)
 

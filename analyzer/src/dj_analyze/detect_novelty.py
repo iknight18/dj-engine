@@ -29,7 +29,7 @@ class NoveltyResult:
                                   # (floor is from prominence threshold 1*MAD / normalisation by 4*MAD)
 
 
-_EMPTY_NOVELTY = NoveltyResult(peaks_seconds=[], peak_strengths=[], confidence=0.0)
+EMPTY_NOVELTY = NoveltyResult(peaks_seconds=[], peak_strengths=[], confidence=0.0)
 
 
 def detect_novelty(
@@ -180,7 +180,7 @@ def _pick_peaks(novelty: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if mad <= 1e-12:
         return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float64)
     prominence = NOVELTY_MIN_PROMINENCE_MAD * mad
-    indices, props = find_peaks(
+    indices, _ = find_peaks(
         novelty,
         prominence=prominence,
         distance=NOVELTY_MIN_PEAK_DISTANCE_BEATS,
