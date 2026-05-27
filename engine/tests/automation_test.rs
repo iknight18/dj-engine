@@ -1,6 +1,10 @@
-use dj_engine::automation::{Automation, AutomationTarget, Curve};
+use dj_engine::automation::{Automation, AutomationQueue, AutomationTarget, Curve, DeckStateStub};
 
 const EPS: f64 = 1e-9;
+
+fn default_stub() -> DeckStateStub {
+    DeckStateStub { fader: 0.0, tempo: 1.0 }
+}
 
 fn ramp(target: AutomationTarget, from: f64, to: f64, curve: Curve, t0: u64, t1: u64) -> Automation {
     Automation { target, t_start_frames: t0, t_end_frames: t1, from, to, curve }
@@ -88,4 +92,52 @@ fn sample_value_equal_power_in_midpoint() {
     let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::EqualPowerIn, 0, 100);
     let v = a.sample_value(50).unwrap();
     assert!((v - 0.7071067811865476).abs() < 1e-12);
+}
+
+#[test]
+fn empty_queue_no_change() {
+    let mut q = AutomationQueue::new();
+    let mut s = default_stub();
+    q.step(0, &mut s);
+    assert_eq!(s.fader, 0.0);
+    assert_eq!(s.tempo, 1.0);
+}
+
+#[test]
+fn fader_linear_ramp_applies() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100));
+    let mut s = default_stub();
+    q.step(50, &mut s);
+    assert!((s.fader - 0.5).abs() < 1e-6);
+}
+
+#[test]
+fn fader_finished_leaves_to_installed_and_is_removed() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100));
+    let mut s = default_stub();
+    q.step(150, &mut s);
+    assert!((s.fader - 1.0).abs() < 1e-6);
+    assert!(q.is_empty());
+}
+
+#[test]
+fn future_automation_not_yet_applied() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 100, 200));
+    let mut s = default_stub();
+    q.step(50, &mut s);
+    assert_eq!(s.fader, 0.0);
+    assert_eq!(q.len(), 1);
+}
+
+#[test]
+fn tempo_step_installs_to_value() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::Tempo, 1.0, 1.07, Curve::Step, 0, 1));
+    let mut s = default_stub();
+    q.step(1, &mut s);
+    assert!((s.tempo - 1.07).abs() < 1e-9);
+    assert!(q.is_empty());
 }

@@ -35,6 +35,15 @@ impl Curve {
     }
 }
 
+/// Mutable snapshot of every parameter an Automation can target.
+/// Lives in `deck.rs`; declared here so this module can mutate it.
+/// **Will be moved to deck.rs in Task 7 and re-exported.**
+#[derive(Clone, Debug)]
+pub struct DeckStateStub {
+    pub fader: f32,
+    pub tempo: f64,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Automation {
     pub target: AutomationTarget,
@@ -56,5 +65,64 @@ impl Automation {
         let t = (cursor - self.t_start_frames) as f64 / span;
         let frac = self.curve.eval(t);
         Some(self.from + (self.to - self.from) * frac)
+    }
+}
+
+pub struct AutomationQueue {
+    pending: Vec<Automation>,
+}
+
+impl Default for AutomationQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AutomationQueue {
+    pub fn new() -> Self {
+        Self { pending: Vec::new() }
+    }
+
+    pub fn schedule(&mut self, a: Automation) {
+        self.pending.push(a);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Apply automations active at `cursor` to `state`. Automations whose
+    /// `t_end_frames <= cursor` have their `to` value applied and are removed.
+    /// Automations whose `t_start_frames > cursor` are left untouched.
+    pub fn step(&mut self, cursor: u64, state: &mut DeckStateStub) {
+        let mut remaining = Vec::with_capacity(self.pending.len());
+        for a in self.pending.drain(..) {
+            if cursor >= a.t_end_frames {
+                apply_value(a.target, a.to, state);
+            } else if cursor >= a.t_start_frames {
+                if let Some(v) = a.sample_value(cursor) {
+                    apply_value(a.target, v, state);
+                }
+                remaining.push(a);
+            } else {
+                remaining.push(a);
+            }
+        }
+        self.pending = remaining;
+    }
+}
+
+fn apply_value(target: AutomationTarget, v: f64, state: &mut DeckStateStub) {
+    match target {
+        AutomationTarget::Fader => {
+            state.fader = v.clamp(0.0, 1.0) as f32;
+        }
+        AutomationTarget::Tempo => {
+            state.tempo = v;
+        }
     }
 }
