@@ -76,7 +76,10 @@ async fn full_transition_outputs_continuous_audio() {
                     // Final drain pass to catch anything still in the ring.
                     let n2 = consumer.pop_slice(&mut buf);
                     if n2 > 0 {
-                        drain_collected.lock().unwrap().extend_from_slice(&buf[..n2]);
+                        drain_collected
+                            .lock()
+                            .unwrap()
+                            .extend_from_slice(&buf[..n2]);
                         continue;
                     }
                     break;

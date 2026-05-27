@@ -110,7 +110,10 @@ async fn pull_playing_produces_nonzero_with_fader_unity() {
     let pcm = d.pull(4096).await.unwrap();
     assert_eq!(pcm.len(), 4096 * 2);
     let energy: f32 = pcm.iter().map(|s| s.abs()).sum();
-    assert!(energy > 1.0, "expected non-trivial audio, got energy {energy}");
+    assert!(
+        energy > 1.0,
+        "expected non-trivial audio, got energy {energy}"
+    );
 }
 
 #[tokio::test]
@@ -177,7 +180,10 @@ async fn tempo_linear_ramp_swaps_to_post_ramp_decoder() {
             zero_run = 0;
         }
     }
-    assert!(max_zero_run < 1024 * 2, "long silence gap: {max_zero_run} samples");
+    assert!(
+        max_zero_run < 1024 * 2,
+        "long silence gap: {max_zero_run} samples"
+    );
 }
 
 #[tokio::test]

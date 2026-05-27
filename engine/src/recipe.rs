@@ -85,11 +85,15 @@ impl Recipe for EqualPowerCrossfade {
             let ramp_frames = (ramp_seconds * sr) as u64;
             let _ = ramp_frames;
             // Source-side headroom check: clamp ramp to cue_out remaining.
-            let cue_out = ctx.incoming.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY);
+            let cue_out = ctx
+                .incoming
+                .sidecar
+                .cue_out_seconds
+                .unwrap_or(f64::INFINITY);
             // Source consumed by crossfade post-roll = length_frames / sr * ratio + small overhead.
             // We accept the same approximation as today's mixer.
-            let source_after_crossfade = ctx.plan.incoming_crossfade_start_seconds
-                + (length_frames as f64 / sr) * ratio;
+            let source_after_crossfade =
+                ctx.plan.incoming_crossfade_start_seconds + (length_frames as f64 / sr) * ratio;
             let max_ramp_source = (cue_out - source_after_crossfade).max(0.0);
             let max_ramp_output = max_ramp_source / ((ratio + 1.0) / 2.0).max(0.001);
             let effective_seconds = ramp_seconds.min(max_ramp_output);
@@ -160,7 +164,11 @@ impl Recipe for HardCut {
 
         if (ratio - 1.0).abs() >= RAMP_IDENTITY_EPSILON {
             let ramp_seconds = RAMP_BARS as f64 * bar_seconds;
-            let cue_out = ctx.incoming.sidecar.cue_out_seconds.unwrap_or(f64::INFINITY);
+            let cue_out = ctx
+                .incoming
+                .sidecar
+                .cue_out_seconds
+                .unwrap_or(f64::INFINITY);
             let source_after = ctx.plan.incoming_crossfade_start_seconds;
             let max_ramp_source = (cue_out - source_after).max(0.0);
             let max_ramp_output = max_ramp_source / ((ratio + 1.0) / 2.0).max(0.001);

@@ -143,7 +143,10 @@ fn equal_power_crossfade_length_matches_plan() {
     let bar_seconds = (60.0_f64 / 120.0) * 4.0;
     let expected_frames = (plan.length_bars as f64 * bar_seconds * SR as f64) as u64;
     let out_fader = &r.outgoing_automations[0];
-    assert_eq!(out_fader.t_end_frames - out_fader.t_start_frames, expected_frames);
+    assert_eq!(
+        out_fader.t_end_frames - out_fader.t_start_frames,
+        expected_frames
+    );
 }
 
 #[test]

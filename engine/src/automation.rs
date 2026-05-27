@@ -71,7 +71,9 @@ impl Default for AutomationQueue {
 
 impl AutomationQueue {
     pub fn new() -> Self {
-        Self { pending: Vec::new() }
+        Self {
+            pending: Vec::new(),
+        }
     }
 
     pub fn schedule(&mut self, a: Automation) {

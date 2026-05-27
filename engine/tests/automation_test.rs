@@ -9,8 +9,22 @@ fn default_state() -> DeckState {
     DeckState::default()
 }
 
-fn ramp(target: AutomationTarget, from: f64, to: f64, curve: Curve, t0: u64, t1: u64) -> Automation {
-    Automation { target, t_start_frames: t0, t_end_frames: t1, from, to, curve }
+fn ramp(
+    target: AutomationTarget,
+    from: f64,
+    to: f64,
+    curve: Curve,
+    t0: u64,
+    t1: u64,
+) -> Automation {
+    Automation {
+        target,
+        t_start_frames: t0,
+        t_end_frames: t1,
+        from,
+        to,
+        curve,
+    }
 }
 
 #[test]
@@ -92,7 +106,14 @@ fn sample_value_at_or_after_end_is_none() {
 
 #[test]
 fn sample_value_equal_power_in_midpoint() {
-    let a = ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::EqualPowerIn, 0, 100);
+    let a = ramp(
+        AutomationTarget::Fader,
+        0.0,
+        1.0,
+        Curve::EqualPowerIn,
+        0,
+        100,
+    );
     let v = a.sample_value(50).unwrap();
     assert!((v - FRAC_1_SQRT_2).abs() < 1e-12);
 }
@@ -109,7 +130,14 @@ fn empty_queue_no_change() {
 #[test]
 fn fader_linear_ramp_applies() {
     let mut q = AutomationQueue::new();
-    q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100));
+    q.schedule(ramp(
+        AutomationTarget::Fader,
+        0.0,
+        1.0,
+        Curve::Linear,
+        0,
+        100,
+    ));
     let mut s = default_state();
     q.step(50, &mut s);
     assert!((s.fader - 0.5).abs() < 1e-6);
@@ -118,7 +146,14 @@ fn fader_linear_ramp_applies() {
 #[test]
 fn fader_finished_leaves_to_installed_and_is_removed() {
     let mut q = AutomationQueue::new();
-    q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 0, 100));
+    q.schedule(ramp(
+        AutomationTarget::Fader,
+        0.0,
+        1.0,
+        Curve::Linear,
+        0,
+        100,
+    ));
     let mut s = default_state();
     q.step(150, &mut s);
     assert!((s.fader - 1.0).abs() < 1e-6);
@@ -128,7 +163,14 @@ fn fader_finished_leaves_to_installed_and_is_removed() {
 #[test]
 fn future_automation_not_yet_applied() {
     let mut q = AutomationQueue::new();
-    q.schedule(ramp(AutomationTarget::Fader, 0.0, 1.0, Curve::Linear, 100, 200));
+    q.schedule(ramp(
+        AutomationTarget::Fader,
+        0.0,
+        1.0,
+        Curve::Linear,
+        100,
+        200,
+    ));
     let mut s = default_state();
     q.step(50, &mut s);
     assert_eq!(s.fader, 0.0);

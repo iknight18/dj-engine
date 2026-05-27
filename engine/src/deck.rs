@@ -56,7 +56,10 @@ impl DeckSource {
     pub(crate) async fn pull(&mut self, n_frames: usize) -> Result<Vec<f32>> {
         match self {
             DeckSource::Decoder(decoder) => decoder.read_frames(n_frames).await,
-            DeckSource::Buffer { pcm, offset_samples } => {
+            DeckSource::Buffer {
+                pcm,
+                offset_samples,
+            } => {
                 let need_samples = n_frames * (CHANNELS as usize);
                 let end = (*offset_samples + need_samples).min(pcm.len());
                 let out = pcm[*offset_samples..end].to_vec();
@@ -69,7 +72,10 @@ impl DeckSource {
     pub(crate) fn is_exhausted(&self) -> bool {
         match self {
             DeckSource::Decoder(_) => false, // can't tell without a read; treated as never exhausted
-            DeckSource::Buffer { pcm, offset_samples } => *offset_samples >= pcm.len(),
+            DeckSource::Buffer {
+                pcm,
+                offset_samples,
+            } => *offset_samples >= pcm.len(),
         }
     }
 }
@@ -142,11 +148,7 @@ use std::path::PathBuf;
 impl Deck {
     /// Load a track and spawn the decoder positioned at `source_start_seconds`.
     /// After this call: Cueing, fader=0, tempo=1.0 (caller sets tempo via automation).
-    pub async fn cue(
-        &mut self,
-        track: LoadedTrack,
-        source_start_seconds: f64,
-    ) -> Result<()> {
+    pub async fn cue(&mut self, track: LoadedTrack, source_start_seconds: f64) -> Result<()> {
         let path: PathBuf = track.sidecar.source_path.clone().into();
         let cue_out = track
             .sidecar
@@ -154,7 +156,8 @@ impl Deck {
             .unwrap_or(track.sidecar.duration_seconds.unwrap_or(f64::INFINITY));
         let decoder = PlayingDecoder::spawn(&path, source_start_seconds, cue_out).await?;
         self.sources.clear();
-        self.sources.push_back(DeckSource::Decoder(Box::new(decoder)));
+        self.sources
+            .push_back(DeckSource::Decoder(Box::new(decoder)));
         self.state.source_path = Some(track.sidecar.source_path.clone());
         self.state.play_state = PlayState::Cueing;
         self.state.fader = 0.0;
@@ -192,7 +195,9 @@ impl Deck {
             if remaining_frames == 0 {
                 break;
             }
-            let Some(source) = self.sources.front_mut() else { break };
+            let Some(source) = self.sources.front_mut() else {
+                break;
+            };
             let chunk = source.pull(remaining_frames).await?;
             if chunk.is_empty() {
                 self.sources.pop_front();
@@ -271,7 +276,9 @@ mod stretch {
         ratio: f64,
     ) -> Result<Vec<f32>> {
         if ratio <= 0.0 {
-            return Err(EngineError::Ffmpeg(format!("invalid atempo ratio: {ratio}")));
+            return Err(EngineError::Ffmpeg(format!(
+                "invalid atempo ratio: {ratio}"
+            )));
         }
         if output_seconds <= 0.0 {
             return Ok(Vec::new());
@@ -437,12 +444,8 @@ impl Deck {
 
         // Source-time position where the ramp begins.
         let ramp_source_start = self.source_position_seconds;
-        let ramp_consumed = stretch::ramp_source_consumed_seconds(
-            start_ratio,
-            end_ratio,
-            ramp_seconds,
-            chunks,
-        );
+        let ramp_consumed =
+            stretch::ramp_source_consumed_seconds(start_ratio, end_ratio, ramp_seconds, chunks);
         let post_ramp_source = (ramp_source_start + ramp_consumed).min(self.source_end_seconds);
 
         // Decode the ramp PCM (blocking await — runs ahead of real time).
@@ -489,7 +492,8 @@ impl Deck {
             pcm: ramp_pcm,
             offset_samples: 0,
         });
-        self.sources.push_back(DeckSource::Decoder(Box::new(new_decoder)));
+        self.sources
+            .push_back(DeckSource::Decoder(Box::new(new_decoder)));
 
         // Update source position to reflect that we've now committed to
         // post-ramp playback.
