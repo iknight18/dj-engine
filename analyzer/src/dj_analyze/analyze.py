@@ -14,9 +14,10 @@ from .detect_bands import detect_band_energies
 from .detect_beats import detect_beats
 from .detect_bpm import detect_bpm
 from .detect_cues import detect_cues
-from .detect_downbeats import detect_downbeats, detect_phrases
+from .detect_downbeats import compute_chroma_ssm, detect_downbeats, detect_phrases
 from .detect_energy import detect_energy
 from .detect_key import detect_key
+from .detect_novelty import detect_novelty
 from .mixability import classify
 
 SCHEMA_VERSION = 2
@@ -43,22 +44,38 @@ def analyze_track(path: Path) -> dict[str, Any]:
     beats = detect_beats(audio, sr, bpm=bpm)
     db_result = detect_downbeats(audio, sr, beats=beats)
 
-    # 16-bar phrase boundaries: the engine snaps transitions to these so they land
-    # on structural moments (verse/chorus/drop) rather than every bar.
+    # Build the chroma SSM ONCE; both detect_phrases and detect_novelty reuse it.
+    chroma_ssm = compute_chroma_ssm(audio, sr, beats) if beats else None
+
     phrase_result = (
-        detect_phrases(audio, sr, beats=beats, output_stride_bars=16) if beats else None
+        detect_phrases(audio, sr, beats=beats, output_stride_bars=16, chroma_ssm=chroma_ssm)
+        if beats
+        else None
+    )
+
+    novelty = (
+        detect_novelty(audio, sr, beats=beats, chroma_ssm=chroma_ssm)
+        if beats
+        else None
     )
 
     key_result = detect_key(audio, sr)
     energy = detect_energy(audio, sr)
     bands = detect_band_energies(audio, sr)
+
     cues = detect_cues(
         duration_seconds=duration,
         beats=beats,
         downbeats=db_result.downbeats,
         energy_curve=energy.curve,
         bpm=bpm,
+        novelty_peaks=novelty.peaks_seconds if novelty else [],
+        novelty_strengths=novelty.peak_strengths if novelty else [],
+        novelty_confidence=novelty.confidence if novelty else 0.0,
+        rms_db_curve=energy.rms_db_curve,
+        max_rms_db=energy.max_rms_db,
     )
+
     mix = classify(
         bpm=bpm,
         bpm_confidence=bpm_conf,
@@ -91,7 +108,6 @@ def analyze_track(path: Path) -> dict[str, Any]:
         "mixable_reasons": mix["reasons"],
     }
 
-    # Only emit phrase_boundaries_seconds + phrase_confidence when we have meaningful data.
     if phrase_result is not None:
         out["phrase_confidence"] = float(phrase_result.confidence)
         if mix["is_phrase_aligned"] and phrase_result.boundaries:
