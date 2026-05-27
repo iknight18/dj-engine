@@ -68,34 +68,42 @@ pub fn mix_crossfade_eq(
         }
     }
 
-    // Choose swap-window timing based on bass content. Both signals swap in the SAME
-    // window — outgoing's bass cuts out while incoming's bass cuts in.
-    let (swap_start, swap_end): (f64, f64) = match bass_hint {
-        Some(h) if h.outgoing_bass_mean > 0.5 && h.incoming_bass_mean > 0.5 => (0.30, 0.55),
-        _ => (0.375, 0.625),
-    };
+    // Asymmetric bass-swap windows. The outgoing kills its bass FIRST, then the
+    // incoming releases its bass AFTER a short gap. A brief no-bass window (~5%)
+    // is far less jarring than the two basses clashing at the midpoint.
+    //
+    // Tight default (most pairs): outgoing kill [0.42, 0.48], incoming release [0.52, 0.58].
+    // Bass-heavy pair (both bass means > 0.5): widen the no-bass gap a touch so the
+    // big basslines really clear before the new one enters.
+    let (out_kill_start, out_kill_end, in_release_start, in_release_end): (f64, f64, f64, f64) =
+        match bass_hint {
+            Some(h) if h.outgoing_bass_mean > 0.5 && h.incoming_bass_mean > 0.5 => {
+                (0.35, 0.45, 0.55, 0.65)
+            }
+            _ => (0.42, 0.48, 0.52, 0.58),
+        };
 
     let mut outgoing_filtered = outgoing.to_vec();
     let mut incoming_filtered = incoming.to_vec();
 
-    // Outgoing: highpass that ACTIVATES — cutoff sweeps from 20 Hz (passthrough) to
-    // 200 Hz (sub-bass only) across the swap window. The outgoing keeps its highs
-    // throughout; only its bass is removed by the midpoint.
+    // Outgoing highpass: sweeps 20 Hz (passthrough) → 200 Hz (bass killed) over
+    // [out_kill_start, out_kill_end], then stays at 200 Hz. Outgoing's bass is gone
+    // before the incoming's bass enters.
     apply_swept_filter(
         &mut outgoing_filtered,
         FilterKind::HighPass,
         sample_rate,
-        |t| sweep_log(t, swap_start, swap_end, 20.0, 200.0),
+        |t| sweep_log(t, out_kill_start, out_kill_end, 20.0, 200.0),
     );
 
-    // Incoming: highpass that RELEASES — cutoff sweeps from 200 Hz (bass killed) to
-    // 20 Hz (full passthrough) across the same window. The incoming's highs are
-    // present from the start; its bass crosses in at the midpoint.
+    // Incoming highpass: stays at 200 Hz (bass killed) until [in_release_start, in_release_end],
+    // then sweeps down to 20 Hz (passthrough). Incoming's bass arrives after the outgoing's
+    // has cleared.
     apply_swept_filter(
         &mut incoming_filtered,
         FilterKind::HighPass,
         sample_rate,
-        |t| sweep_log(t, swap_start, swap_end, 200.0, 20.0),
+        |t| sweep_log(t, in_release_start, in_release_end, 200.0, 20.0),
     );
 
     // Apply equal-power volume curves on top of the filtered signals.

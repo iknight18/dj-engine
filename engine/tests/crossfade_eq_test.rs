@@ -107,13 +107,13 @@ fn both_bass_heavy_uses_earlier_swap_window() {
     });
     let mixed_early = mix_crossfade_eq(&outgoing, &incoming, frames, sr, hint);
     let mixed_default = mix_crossfade_eq(&outgoing, &incoming, frames, sr, None);
-    // Outputs should differ — by the 33% mark the early window (0.25..0.40) is mid-sweep
-    // but the default window (0.375..0.5) has not started yet.
-    let probe_frame = frames / 3;
+    // Outputs should differ — at t=0.40 the early window's outgoing bass-kill (0.35..0.45)
+    // is mid-sweep, but the default window (0.42..0.48) has not started yet.
+    let probe_frame = (frames as f64 * 0.40) as usize;
     let probe_sample = probe_frame * 2;
     assert!(
         (mixed_early[probe_sample] - mixed_default[probe_sample]).abs() > 1e-4,
-        "expected difference at 33% mark with early swap window: early={} default={}",
+        "expected difference at 40% mark with early swap window: early={} default={}",
         mixed_early[probe_sample],
         mixed_default[probe_sample]
     );
