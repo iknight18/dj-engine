@@ -12,6 +12,7 @@ from typing import Sequence
 
 LOUDNESS_THRESHOLD_DB = -9.0
 LOUDNESS_WINDOW_S = 2.0
+_SILENCE_GUARD_DB = -59.0  # treat as no signal below this; catches the -120 dB digital silence floor
 
 MIN_INTRO_SECONDS = 8.0
 MAX_INTRO_SECONDS = 60.0
@@ -40,11 +41,8 @@ def detect_cues(
     """Compute cue_in, cue_out, intro_end, outro_start (seconds).
 
     cue_in/out are anchored by the loudness floor (max - 9 dB) snapped to downbeats.
-    intro_end is the first novelty peak after cue_in within [MIN_INTRO, MAX_INTRO]s,
-    snapped to the nearest downbeat; falls back to cue_in + 16 bars when no usable peak.
-    outro_start is symmetric backwards from cue_out.
-    For tracks longer than 6 min, cue_out is moved into [5:30, 7:00] at the strongest
-    novelty peak in that window (or the floor 5:30 if none).
+    intro_end/outro_start use the +/- 16 bars heuristic for now (novelty-driven
+    placement is Task 5; long-track shortening is Task 6).
     """
     cue_in, cue_out = _loudness_anchor_cues(
         duration_seconds, downbeats, rms_db_curve, max_rms_db
@@ -78,7 +76,7 @@ def _loudness_anchor_cues(
     max_rms_db: float,
 ) -> tuple[float, float]:
     """Return (cue_in, cue_out) anchored to -9 dB-of-max windows, snapped to downbeats."""
-    if not rms_db_curve or max_rms_db <= LOUDNESS_THRESHOLD_DB - 50:
+    if not rms_db_curve or max_rms_db <= _SILENCE_GUARD_DB:
         # No usable loudness signal (silent track or decode error).
         return 0.0, duration
 
@@ -108,7 +106,7 @@ def _loudness_anchor_cues(
 
 
 def _snap_up_to_downbeat(t: float, downbeats: Sequence[float], fallback: float) -> float:
-    """First downbeat >= t. If none, return fallback."""
+    """First downbeat >= t. Assumes downbeats are sorted ascending. If none, return fallback."""
     for db in downbeats:
         if db >= t:
             return float(db)
@@ -116,7 +114,7 @@ def _snap_up_to_downbeat(t: float, downbeats: Sequence[float], fallback: float) 
 
 
 def _snap_down_to_downbeat(t: float, downbeats: Sequence[float], fallback: float) -> float:
-    """Last downbeat <= t. If none, return fallback."""
+    """Last downbeat <= t. Assumes downbeats are sorted ascending. If none, return fallback."""
     last = None
     for db in downbeats:
         if db <= t:

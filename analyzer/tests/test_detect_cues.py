@@ -1,5 +1,3 @@
-import math
-
 import pytest
 
 from dj_analyze.detect_cues import detect_cues
@@ -62,7 +60,7 @@ def test_detect_cues_loudness_anchor_silent_intro():
     )
     # First loud window starts at index 5 -> t=10s. First downbeat >= 10s at 120 BPM
     # (bar period 2.0s) is t=10.0s exactly.
-    assert cues["cue_in_seconds"] == pytest.approx(10.0, abs=2.0)
+    assert cues["cue_in_seconds"] == pytest.approx(10.0, abs=0.5)
 
 
 def test_detect_cues_loudness_anchor_silent_outro():
@@ -85,11 +83,11 @@ def test_detect_cues_loudness_anchor_silent_outro():
         max_rms_db=-6.0,
     )
     # Last loud window ends at t=50s. Last downbeat <= 50s at 120 BPM is t=50.0s.
-    assert cues["cue_out_seconds"] == pytest.approx(50.0, abs=2.0)
+    assert cues["cue_out_seconds"] == pytest.approx(50.0, abs=0.5)
 
 
-def test_detect_cues_loudness_below_threshold_yields_no_match():
-    """Whole track is more than 9 dB below max -> falls back to no-loud-window behavior."""
+def test_detect_cues_uniform_loudness_uses_full_range():
+    """Uniform loudness (all windows above max - 9 dB) -> cue_in=0, cue_out near duration."""
     dur = 30.0
     # Every window is exactly at -20 dB; max is -20 dB. -20 - (-20) = 0 >= -9 -> all windows qualify.
     rms = [-20.0] * 15
