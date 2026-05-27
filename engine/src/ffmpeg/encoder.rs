@@ -35,6 +35,7 @@ impl Encoder {
         cmd.arg("-hide_banner")
             .arg("-loglevel")
             .arg("info")
+            .arg("-re")
             .arg("-f")
             .arg("f32le")
             .arg("-ar")

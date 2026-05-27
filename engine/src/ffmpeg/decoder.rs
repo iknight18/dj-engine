@@ -13,6 +13,9 @@ use crate::ffmpeg::{BYTES_PER_FRAME, CHANNELS, SAMPLE_RATE};
 pub struct PlayingDecoder {
     child: Child,
     stdout: tokio::process::ChildStdout,
+    /// Track time (seconds) corresponding to the FIRST sample the decoder emits.
+    /// Used by the mixer to know how far into the track the current output cursor is.
+    pub start_seconds: f64,
 }
 
 impl PlayingDecoder {
@@ -45,7 +48,11 @@ impl PlayingDecoder {
             .stdout
             .take()
             .ok_or_else(|| EngineError::Ffmpeg("no stdout pipe".into()))?;
-        Ok(Self { child, stdout })
+        Ok(Self {
+            child,
+            stdout,
+            start_seconds,
+        })
     }
 
     /// Read the next `frames` of stereo audio. Returns interleaved f32 stereo.
