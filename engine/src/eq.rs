@@ -103,6 +103,7 @@ pub enum FilterKind {
 /// Process a stereo interleaved buffer IN PLACE with a time-varying cutoff.
 /// `cutoff_curve(t)` returns the cutoff in Hz for normalized time `t in [0, 1]`.
 /// Filters are evaluated independently per channel; state persists across the buffer.
+#[allow(dead_code)] // Re-introduced by sub-project 3 (Filter Sweep recipe); preserved meanwhile.
 pub fn apply_swept_filter(
     samples: &mut [f32],
     kind: FilterKind,
