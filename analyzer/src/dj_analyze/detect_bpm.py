@@ -21,33 +21,61 @@ def detect_bpm(audio: np.ndarray, sr: int) -> tuple[float, float]:
     return bpm, confidence
 
 
+def _octave_normalize(window_bpm: float, target_bpm: float) -> float:
+    """Return whichever of {window_bpm/4, /2, *1, *2, *4} is closest to ``target_bpm``.
+
+    ``librosa.beat.tempo`` on short windows is octave-ambiguous — on a steady 152 BPM
+    track a single window may confidently report 76 (half-time interpretation) or 304
+    (double-time), especially during breakdowns. Without this correction, one flipped
+    window destroys the standard-deviation estimate and the disagreement multiplier,
+    zeroing the confidence on tracks whose tempo is actually rock-solid.
+    """
+    if window_bpm <= 0 or target_bpm <= 0:
+        return window_bpm
+    candidates = (
+        window_bpm / 4.0,
+        window_bpm / 2.0,
+        window_bpm,
+        window_bpm * 2.0,
+        window_bpm * 4.0,
+    )
+    return float(min(candidates, key=lambda c: abs(c - target_bpm)))
+
+
+_VOTE_TOLERANCE = 0.06  # ±6% — matches the engine's BPM-compatibility window.
+
+
 def _tempo_stability(audio: np.ndarray, sr: int, global_bpm: float) -> float:
-    """Per-window tempo standard deviation, normalized into a [0, 1] confidence."""
+    """Vote-based tempo confidence: fraction of windows agreeing with the global BPM.
+
+    Each 10-second window's BPM is octave-normalized against the global BPM, then
+    "votes" if it's within ``_VOTE_TOLERANCE`` of global. Confidence = votes / windows.
+
+    This replaces the prior std-dev + disagreement-multiplier metric, which was
+    outlier-sensitive — a few windows locked onto a non-octave fraction (e.g., 2/3
+    of the real tempo, from syncopated onset patterns) pushed the rel-std past the
+    cutoff and zeroed the confidence on tracks whose tempo is actually rock-solid.
+    Voting is robust to such outliers: they simply don't contribute to the score.
+    """
     window_seconds = 10.0
     window = int(window_seconds * sr)
     if len(audio) < window * 2:
         # Not enough data for windowing — fall back to a flat 0.75 (we got *a* number).
         return 0.75
 
-    bpms = []
+    bpms: list[float] = []
     for start in range(0, len(audio) - window, window):
         seg = audio[start : start + window]
         env = librosa.onset.onset_strength(y=seg, sr=sr)
         t = librosa.beat.tempo(onset_envelope=env, sr=sr, aggregate=np.median)
         bpms.append(float(t[0]))
 
-    if not bpms:
-        return 0.75
-
-    arr = np.array(bpms, dtype=np.float64)
-    # Relative std-dev around the median window tempo.
-    median = float(np.median(arr))
-    if median <= 0:
+    if not bpms or global_bpm <= 0:
         return 0.0
-    rel_std = float(np.std(arr) / median)
-    # Map: 0% drift → 1.0, 10% drift → 0.0, clamp.
-    confidence = max(0.0, min(1.0, 1.0 - rel_std / 0.1))
-    # Penalize disagreement with the global estimate.
-    disagreement = abs(median - global_bpm) / max(global_bpm, 1.0)
-    confidence *= max(0.0, 1.0 - disagreement / 0.05)
-    return float(confidence)
+
+    votes = 0
+    for b in bpms:
+        normed = _octave_normalize(b, global_bpm)
+        if abs(normed - global_bpm) / global_bpm <= _VOTE_TOLERANCE:
+            votes += 1
+    return float(votes / len(bpms))
