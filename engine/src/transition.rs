@@ -23,14 +23,19 @@ const PHRASE_BARS: usize = 16;
 pub fn plan_transition(outgoing: &Sidecar, incoming: &Sidecar) -> TransitionPlan {
     let (length_bars, use_eq_swap) = pick_length_and_variant(outgoing, incoming);
 
-    // Snapping (filled in by Task 7). For now use raw values.
-    let outgoing_crossfade_start_seconds =
-        outgoing.outro_start_seconds.unwrap_or(0.0);
-    let incoming_crossfade_start_seconds =
-        incoming.intro_end_seconds.unwrap_or(0.0);
+    let raw_outgoing_start = outgoing.outro_start_seconds.unwrap_or(0.0);
+    let raw_incoming_start = incoming.intro_end_seconds.unwrap_or(0.0);
 
-    // Silence unused-import warning until Task 7 wires it in.
-    let _ = phrase_boundaries(incoming, PHRASE_BARS);
+    let outgoing_boundaries = phrase_boundaries(outgoing, PHRASE_BARS);
+    let incoming_boundaries = phrase_boundaries(incoming, PHRASE_BARS);
+
+    let outgoing_crossfade_start_seconds = nearest(&outgoing_boundaries, raw_outgoing_start)
+        .unwrap_or(raw_outgoing_start);
+
+    let incoming_crossfade_start_seconds = incoming_boundaries
+        .first()
+        .copied()
+        .unwrap_or(raw_incoming_start);
 
     TransitionPlan {
         outgoing_crossfade_start_seconds,
@@ -38,6 +43,18 @@ pub fn plan_transition(outgoing: &Sidecar, incoming: &Sidecar) -> TransitionPlan
         length_bars,
         use_eq_swap,
     }
+}
+
+fn nearest(boundaries: &[f64], target: f64) -> Option<f64> {
+    boundaries
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            (*a - target)
+                .abs()
+                .partial_cmp(&(*b - target).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 fn pick_length_and_variant(out: &Sidecar, inc: &Sidecar) -> (usize, bool) {

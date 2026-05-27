@@ -95,3 +95,43 @@ fn plan_returns_TransitionPlan_struct() {
     let inc = sc(120.0, "8A", 0.4, true, dense_downbeats(), 0.0, 80.0);
     let _plan: TransitionPlan = plan_transition(&out, &inc);
 }
+
+#[test]
+fn outgoing_start_snaps_to_nearest_phrase_boundary() {
+    // Downbeats every 1s from 0 to 60. phrase_bars=16 → boundaries at indices 0, 16, 32, 48.
+    // intro_end=0 → anchor at downbeat[0]. outro_start=42 → phrase boundaries [0, 16, 32].
+    // Nearest to outro_start=42 is 32.
+    let downbeats: Vec<f64> = (0..60).map(|i| i as f64).collect();
+    let out = sc(120.0, "8A", 0.4, true, downbeats.clone(), 0.0, 42.0);
+    let inc = sc(120.0, "8A", 0.4, true, downbeats, 0.0, 60.0);
+    let plan = plan_transition(&out, &inc);
+    assert!(
+        (plan.outgoing_crossfade_start_seconds - 32.0).abs() < 1e-6,
+        "expected 32.0 (nearest phrase boundary), got {}",
+        plan.outgoing_crossfade_start_seconds
+    );
+}
+
+#[test]
+fn incoming_start_is_first_phrase_boundary() {
+    let downbeats: Vec<f64> = (0..60).map(|i| i as f64).collect();
+    let out = sc(120.0, "8A", 0.4, true, downbeats.clone(), 0.0, 40.0);
+    // intro_end=5, phrase boundaries anchored at downbeat[5]=5 → first boundary is 5.0.
+    let inc = sc(120.0, "8A", 0.4, true, downbeats, 5.0, 60.0);
+    let plan = plan_transition(&out, &inc);
+    assert!(
+        (plan.incoming_crossfade_start_seconds - 5.0).abs() < 1e-6,
+        "expected 5.0 (first phrase boundary), got {}",
+        plan.incoming_crossfade_start_seconds
+    );
+}
+
+#[test]
+fn falls_back_to_raw_values_when_no_phrase_boundaries() {
+    // Empty downbeats → phrase_boundaries returns empty → fall back to raw outro_start / intro_end.
+    let out = sc(120.0, "8A", 0.4, true, vec![], 0.0, 42.0);
+    let inc = sc(120.0, "8A", 0.4, true, vec![], 5.0, 60.0);
+    let plan = plan_transition(&out, &inc);
+    assert!((plan.outgoing_crossfade_start_seconds - 42.0).abs() < 1e-6);
+    assert!((plan.incoming_crossfade_start_seconds - 5.0).abs() < 1e-6);
+}
