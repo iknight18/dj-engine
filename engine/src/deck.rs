@@ -17,6 +17,9 @@ pub enum PlayState {
 pub struct DeckState {
     pub fader: f32,
     pub tempo: f64,
+    pub eq_low_db: f64,
+    pub eq_mid_db: f64,
+    pub eq_high_db: f64,
     pub source_path: Option<String>,
     pub play_state: PlayState,
 }
@@ -26,11 +29,19 @@ impl Default for DeckState {
         Self {
             fader: 0.0,
             tempo: 1.0,
+            eq_low_db: 0.0,
+            eq_mid_db: 0.0,
+            eq_high_db: 0.0,
             source_path: None,
             play_state: PlayState::Stopped,
         }
     }
 }
+
+const EQ_LOW_FREQ: f64 = 200.0;
+const EQ_MID_FREQ: f64 = 1000.0;
+const EQ_MID_Q: f64 = 1.0;
+const EQ_HIGH_FREQ: f64 = 5000.0;
 
 use crate::error::Result;
 use crate::ffmpeg::decoder::PlayingDecoder;
@@ -98,10 +109,20 @@ pub struct Deck {
     /// `t_start_frames` of the Tempo Linear ramp we've already materialized
     /// into the source queue. `None` means no ramp staged yet.
     ramp_materialized_for: Option<u64>,
+    eq_low_l: crate::eq::Biquad,
+    eq_low_r: crate::eq::Biquad,
+    eq_mid_l: crate::eq::Biquad,
+    eq_mid_r: crate::eq::Biquad,
+    eq_high_l: crate::eq::Biquad,
+    eq_high_r: crate::eq::Biquad,
+    last_eq_low_db: f64,
+    last_eq_mid_db: f64,
+    last_eq_high_db: f64,
 }
 
 impl Deck {
     pub fn new(id: DeckId) -> Self {
+        let sr = SAMPLE_RATE as f64;
         Self {
             id,
             state: DeckState::default(),
@@ -111,6 +132,15 @@ impl Deck {
             source_position_seconds: 0.0,
             source_end_seconds: f64::INFINITY,
             ramp_materialized_for: None,
+            eq_low_l: crate::eq::Biquad::low_shelf(sr, EQ_LOW_FREQ, 0.0),
+            eq_low_r: crate::eq::Biquad::low_shelf(sr, EQ_LOW_FREQ, 0.0),
+            eq_mid_l: crate::eq::Biquad::peaking(sr, EQ_MID_FREQ, EQ_MID_Q, 0.0),
+            eq_mid_r: crate::eq::Biquad::peaking(sr, EQ_MID_FREQ, EQ_MID_Q, 0.0),
+            eq_high_l: crate::eq::Biquad::high_shelf(sr, EQ_HIGH_FREQ, 0.0),
+            eq_high_r: crate::eq::Biquad::high_shelf(sr, EQ_HIGH_FREQ, 0.0),
+            last_eq_low_db: 0.0,
+            last_eq_mid_db: 0.0,
+            last_eq_high_db: 0.0,
         }
     }
 
@@ -147,6 +177,25 @@ impl Deck {
         self.source_position_seconds = 0.0;
         self.source_end_seconds = f64::INFINITY;
         self.ramp_materialized_for = None;
+        self.reset_eq();
+    }
+
+    /// Reset the per-deck EQ chain to passthrough (0 dB on all three bands).
+    /// Used by `cue` and `unload` so a new track starts with a clean EQ state.
+    fn reset_eq(&mut self) {
+        self.state.eq_low_db = 0.0;
+        self.state.eq_mid_db = 0.0;
+        self.state.eq_high_db = 0.0;
+        self.last_eq_low_db = 0.0;
+        self.last_eq_mid_db = 0.0;
+        self.last_eq_high_db = 0.0;
+        let sr = SAMPLE_RATE as f64;
+        self.eq_low_l = crate::eq::Biquad::low_shelf(sr, EQ_LOW_FREQ, 0.0);
+        self.eq_low_r = crate::eq::Biquad::low_shelf(sr, EQ_LOW_FREQ, 0.0);
+        self.eq_mid_l = crate::eq::Biquad::peaking(sr, EQ_MID_FREQ, EQ_MID_Q, 0.0);
+        self.eq_mid_r = crate::eq::Biquad::peaking(sr, EQ_MID_FREQ, EQ_MID_Q, 0.0);
+        self.eq_high_l = crate::eq::Biquad::high_shelf(sr, EQ_HIGH_FREQ, 0.0);
+        self.eq_high_r = crate::eq::Biquad::high_shelf(sr, EQ_HIGH_FREQ, 0.0);
     }
 }
 
@@ -182,6 +231,7 @@ impl Deck {
         self.source_position_seconds = source_start_seconds;
         self.source_end_seconds = cue_out;
         self.ramp_materialized_for = None;
+        self.reset_eq();
         Ok(())
     }
 

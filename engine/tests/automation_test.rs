@@ -233,3 +233,45 @@ fn tempo_step_installs_to_value() {
     assert!((s.tempo - 1.07).abs() < 1e-9);
     assert!(q.is_empty());
 }
+
+#[test]
+fn eq_low_step_installs_to_value() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::EqLow, 0.0, -40.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.eq_low_db - (-40.0)).abs() < 1e-9);
+    assert!(q.is_empty());
+}
+
+#[test]
+fn eq_mid_clamped_below_minus_40() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(
+        AutomationTarget::EqMid,
+        0.0,
+        -100.0,
+        Curve::Step,
+        0,
+        1,
+    ));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.eq_mid_db - (-40.0)).abs() < 1e-9);
+}
+
+#[test]
+fn eq_high_clamped_above_plus_6() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::EqHigh, 0.0, 20.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.eq_high_db - 6.0).abs() < 1e-9);
+}
+
+#[test]
+fn eq_low_linear_midpoint() {
+    let a = ramp(AutomationTarget::EqLow, 0.0, -40.0, Curve::Linear, 0, 100);
+    let v = a.sample_value(50).unwrap();
+    assert!((v - (-20.0)).abs() < 1e-9);
+}

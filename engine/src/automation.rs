@@ -6,7 +6,9 @@ use std::f64::consts::FRAC_PI_2;
 pub enum AutomationTarget {
     Fader,
     Tempo,
-    // sub-project 2 adds EqLow, EqMid, EqHigh; sub-project 3 adds Filter; etc.
+    EqLow,
+    EqMid,
+    EqHigh,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,6 +135,15 @@ fn apply_value(target: AutomationTarget, v: f64, state: &mut crate::deck::DeckSt
         }
         AutomationTarget::Tempo => {
             state.tempo = v;
+        }
+        AutomationTarget::EqLow => {
+            state.eq_low_db = v.clamp(-40.0, 6.0);
+        }
+        AutomationTarget::EqMid => {
+            state.eq_mid_db = v.clamp(-40.0, 6.0);
+        }
+        AutomationTarget::EqHigh => {
+            state.eq_high_db = v.clamp(-40.0, 6.0);
         }
     }
 }
