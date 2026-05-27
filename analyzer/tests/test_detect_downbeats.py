@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 from dj_analyze.decode import decode_audio
-from dj_analyze.detect_downbeats import DownbeatResult, detect_downbeats, detect_phrases
+from dj_analyze.detect_downbeats import (
+    DownbeatResult,
+    compute_chroma_ssm,
+    detect_downbeats,
+    detect_phrases,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -82,11 +89,6 @@ def test_detect_phrases_phrase_bars_legacy_alias_still_works() -> None:
     via_new = detect_phrases(audio, sr, beats=beats, output_stride_bars=1)
     assert via_legacy.boundaries == via_new.boundaries
     assert via_legacy.confidence == via_new.confidence
-
-
-import numpy as np
-
-from dj_analyze.detect_downbeats import compute_chroma_ssm, detect_phrases
 
 
 def test_compute_chroma_ssm_returns_square_matrix():

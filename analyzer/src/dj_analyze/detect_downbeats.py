@@ -57,8 +57,9 @@ def compute_chroma_ssm(
 ) -> np.ndarray | None:
     """Beat-synchronous chroma self-similarity matrix.
 
-    Returns None if the track is too short to build a meaningful SSM
-    (fewer beats than the minimum search period, or sub-second audio).
+    Returns an (N x N) float64 affinity matrix where N is the number of beats,
+    or None when the track is too short to build a meaningful SSM (fewer than 4
+    beats, sub-second audio, or fewer chroma frames than the minimum search period).
     """
     if len(beats) < 4 or len(audio) < sr:
         return None
@@ -85,12 +86,24 @@ def detect_phrases(
     *,
     output_stride_bars: int = 16,
     phrase_bars: int | None = None,  # legacy alias for output_stride_bars
-    chroma_ssm: np.ndarray | None = None,  # NEW: reuse a precomputed SSM if available
+    chroma_ssm: np.ndarray | None = None,  # reuse a precomputed SSM if available
 ) -> PhraseResult:
     """Find repeating phrase structure and return boundaries at a fixed bar stride.
 
-    See module docstring for details. Pass `chroma_ssm` to avoid recomputing the
-    SSM when the caller (analyze.py) has already built it for novelty detection.
+    The detector searches for the strongest periodicity in {4, 8, 16} beats to find
+    where structural repetition begins (the "anchor"). It then emits boundaries every
+    ``output_stride_bars`` BARS from that anchor (default 16 bars = standard DJ phrase
+    length, assuming 4/4 time with 4 beats per bar). The search period and the output
+    stride are independent — short detected periods give us reliable anchoring, and
+    the configurable stride controls the granularity of the output for the caller.
+
+    Returns boundaries (seconds) and a confidence in [0, 1] reflecting how strongly
+    the audio's self-similarity matrix exhibits the detected period.
+
+    Pass ``chroma_ssm`` to skip recomputing the SSM when the caller (analyze.py) has
+    already built it for novelty detection. The ``phrase_bars`` keyword is accepted
+    as a legacy alias so existing callers that meant "stride in bars" don't silently
+    break.
     """
     if phrase_bars is not None:
         output_stride_bars = phrase_bars
