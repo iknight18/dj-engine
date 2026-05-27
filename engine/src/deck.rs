@@ -71,3 +71,60 @@ impl DeckSource {
         }
     }
 }
+
+use std::collections::VecDeque;
+
+use crate::automation::{Automation, AutomationQueue};
+
+pub struct Deck {
+    id: DeckId,
+    state: DeckState,
+    automations: AutomationQueue,
+    sources: VecDeque<DeckSource>,
+    /// Master-clock frame count this deck has emitted.
+    frame_cursor: u64,
+    /// Current source-time position in seconds (used when respawning decoders).
+    source_position_seconds: f64,
+    /// cue_out boundary in source-time seconds; respawns clamp to this.
+    source_end_seconds: f64,
+}
+
+impl Deck {
+    pub fn new(id: DeckId) -> Self {
+        Self {
+            id,
+            state: DeckState::default(),
+            automations: AutomationQueue::new(),
+            sources: VecDeque::new(),
+            frame_cursor: 0,
+            source_position_seconds: 0.0,
+            source_end_seconds: f64::INFINITY,
+        }
+    }
+
+    pub fn id(&self) -> DeckId {
+        self.id
+    }
+
+    pub fn state(&self) -> &DeckState {
+        &self.state
+    }
+
+    pub fn frame_cursor(&self) -> u64 {
+        self.frame_cursor
+    }
+
+    pub fn schedule(&mut self, a: Automation) {
+        self.automations.schedule(a);
+    }
+
+    pub async fn unload(&mut self) {
+        self.sources.clear();
+        self.state.source_path = None;
+        self.state.play_state = PlayState::Stopped;
+        self.state.fader = 0.0;
+        self.state.tempo = 1.0;
+        self.source_position_seconds = 0.0;
+        self.source_end_seconds = f64::INFINITY;
+    }
+}
