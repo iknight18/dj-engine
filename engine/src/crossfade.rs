@@ -77,10 +77,14 @@ pub fn mix_crossfade_eq(
     // big basslines really clear before the new one enters.
     let (out_kill_start, out_kill_end, in_release_start, in_release_end): (f64, f64, f64, f64) =
         match bass_hint {
+            // Bass-heavy pair: wider swap so the bass changes feel gradual,
+            // with a brief no-bass gap centered at the midpoint.
             Some(h) if h.outgoing_bass_mean > 0.5 && h.incoming_bass_mean > 0.5 => {
-                (0.35, 0.45, 0.55, 0.65)
+                (0.30, 0.48, 0.52, 0.70)
             }
-            _ => (0.42, 0.48, 0.52, 0.58),
+            // Default: ~15% wide on each side of the midpoint, gentle gradual swap.
+            // For a 16-bar crossfade this is roughly 2-3 bars of bass modulation per side.
+            _ => (0.35, 0.48, 0.52, 0.65),
         };
 
     let mut outgoing_filtered = outgoing.to_vec();

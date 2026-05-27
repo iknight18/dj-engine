@@ -22,15 +22,20 @@ impl PlayingDecoder {
     /// Spawn `ffmpeg` to decode `path` starting at `start_seconds`, ending at `end_seconds`.
     pub async fn spawn(path: &Path, start_seconds: f64, end_seconds: f64) -> Result<Self> {
         let mut cmd = Command::new("ffmpeg");
+        // Use accurate seek: `-ss` placed AFTER `-i`. Slower (ffmpeg decodes from the
+        // nearest keyframe forward to the requested time) but sample-accurate. The
+        // fast-seek form (`-ss` before `-i`) lands on a keyframe near the requested
+        // time, which causes audible splice glitches when we hand off from the
+        // mix-window stretched buffer to this new decoder.
         cmd.arg("-hide_banner")
             .arg("-loglevel")
             .arg("error")
+            .arg("-i")
+            .arg(path)
             .arg("-ss")
             .arg(format!("{:.3}", start_seconds))
             .arg("-to")
             .arg(format!("{:.3}", end_seconds))
-            .arg("-i")
-            .arg(path)
             .arg("-f")
             .arg("f32le")
             .arg("-ar")

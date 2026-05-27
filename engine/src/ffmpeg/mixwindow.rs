@@ -23,21 +23,30 @@ pub async fn decode_stretched(
             "invalid atempo ratio: {ratio}"
         )));
     }
-    let filter = atempo_chain(ratio);
+
+    // Bypass atempo when the ratio is essentially 1.0 — atempo (even at ratio=1.0)
+    // adds ~50-100ms of algorithmic latency from its WSOLA windowing, which causes
+    // a sample-discontinuity when handing off to the post-crossfade decoder.
+    // Threshold: 0.5% drift (≈ unnoticeable BPM mismatch).
+    let identity = (ratio - 1.0).abs() < 0.005;
 
     let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-hide_banner")
-        .arg("-loglevel")
-        .arg("error")
+    cmd.arg("-hide_banner").arg("-loglevel").arg("error");
+
+    // Accurate seek (`-ss` after `-i`) to match the new decoder's seek semantics,
+    // so the stretched buffer and the post-crossfade decoder line up sample-for-sample.
+    cmd.arg("-i")
+        .arg(path)
         .arg("-ss")
         .arg(format!("{:.3}", start_seconds))
         .arg("-to")
-        .arg(format!("{:.3}", end_seconds))
-        .arg("-i")
-        .arg(path)
-        .arg("-af")
-        .arg(filter)
-        .arg("-f")
+        .arg(format!("{:.3}", end_seconds));
+
+    if !identity {
+        cmd.arg("-af").arg(atempo_chain(ratio));
+    }
+
+    cmd.arg("-f")
         .arg("f32le")
         .arg("-ar")
         .arg(SAMPLE_RATE.to_string())
