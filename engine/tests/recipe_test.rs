@@ -89,9 +89,12 @@ fn equal_power_same_bpm_emits_one_out_two_in_no_ramp() {
 }
 
 #[test]
-fn equal_power_diff_bpm_emits_ramp() {
+fn equal_power_diff_bpm_no_ramp_only_step() {
+    // Pitch-journey ramp was removed in favor of leaving incoming at the cued
+    // (BPM-matched) tempo for the rest of its playback. Confirm no Tempo Linear
+    // automation is emitted, only the Tempo Step at t0 confirming the cue tempo.
     let outgoing = track(120.0);
-    let incoming = track(124.0); // +3.3% → triggers ramp
+    let incoming = track(124.0);
     let plan = TransitionPlan {
         outgoing_crossfade_start_seconds: 200.0,
         incoming_crossfade_start_seconds: 16.0,
@@ -109,15 +112,20 @@ fn equal_power_diff_bpm_emits_ramp() {
     };
     let r = EqualPowerCrossfade.build(&ctx);
     assert_eq!(r.outgoing_automations.len(), 1);
-    assert_eq!(r.incoming_automations.len(), 3);
-    let ramp = r
+    assert_eq!(r.incoming_automations.len(), 2);
+    assert!(!r
         .incoming_automations
         .iter()
-        .find(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
-        .expect("expected pitch-journey ramp");
+        .any(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear));
     let expected_ratio = 120.0_f64 / 124.0_f64;
-    assert!((ramp.from - expected_ratio).abs() < 1e-9);
-    assert!((ramp.to - 1.0).abs() < 1e-9);
+    let tempo_step = r
+        .incoming_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::Tempo)
+        .expect("expected Tempo Step");
+    assert_eq!(tempo_step.curve, Curve::Step);
+    assert!((tempo_step.from - expected_ratio).abs() < 1e-9);
+    assert!((tempo_step.to - expected_ratio).abs() < 1e-9);
 }
 
 #[test]

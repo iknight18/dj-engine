@@ -115,12 +115,17 @@ async fn main() -> anyhow::Result<()> {
 
         let plan = dj_engine::transition::plan_transition(&current.sidecar, &next_track.sidecar);
 
-        // Play current track until its outro_start (then the recipe takes over).
-        // outro_start in source-time -> master-clock frames.
-        let cue_in = current.sidecar.cue_in_seconds.unwrap_or(0.0);
+        // Play current track until its outro_start. The deck's actual source
+        // position may NOT be at cue_in (it likely entered as incoming in the
+        // previous transition, cued at intro_end - 1 bar), and its tempo may
+        // not be 1.0 (cued at the previous BPM match). Compute the output
+        // frames remaining from where the deck actually is.
         let outro_start = plan.outgoing_crossfade_start_seconds;
-        let frames_until_outro =
-            ((outro_start - cue_in).max(0.0) * dj_engine::ffmpeg::SAMPLE_RATE as f64) as u64;
+        let current_source = mixer.deck(current_deck).source_position_seconds();
+        let tempo = mixer.deck(current_deck).state().tempo.max(0.001);
+        let frames_until_outro = (((outro_start - current_source).max(0.0)
+            * dj_engine::ffmpeg::SAMPLE_RATE as f64)
+            / tempo) as u64;
         let outro_deadline = mixer.master_clock_frames() + frames_until_outro;
         dj_engine::mixer::tick_until(&mut mixer, outro_deadline).await?;
 

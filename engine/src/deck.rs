@@ -126,6 +126,14 @@ impl Deck {
         self.frame_cursor
     }
 
+    /// Current source-time position in seconds. Advances by `emitted_seconds *
+    /// tempo` on each pull while Playing. Used by the main loop to schedule the
+    /// next transition based on where the deck actually is, not where it would
+    /// be if it had started at `cue_in`.
+    pub fn source_position_seconds(&self) -> f64 {
+        self.source_position_seconds
+    }
+
     pub fn schedule(&mut self, a: Automation) {
         self.automations.schedule(a);
     }
