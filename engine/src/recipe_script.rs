@@ -120,6 +120,17 @@ pub enum Phase {
         span: BarSpan,
         curve: Curve,
     },
+    /// Per-stem fader ramp. Compiles to one of the four `StemFader*` automation
+    /// targets. Stem-aware recipes use this to mute / un-mute individual stems
+    /// independently of the mixed fader.
+    StemFader {
+        deck: DeckRole,
+        stem: crate::deck::StemKind,
+        from: f64,
+        to: f64,
+        span: BarSpan,
+        curve: Curve,
+    },
 }
 
 use crate::automation::{Automation, AutomationTarget};
@@ -409,6 +420,22 @@ pub fn compile(script: &TransitionScript, ctx: &TransitionContext<'_>) -> Recipe
                         }
                     );
                 }
+            }
+            Phase::StemFader {
+                deck,
+                stem,
+                from,
+                to,
+                span,
+                curve,
+            } => {
+                let target = match stem {
+                    crate::deck::StemKind::Drums => AutomationTarget::StemFaderDrums,
+                    crate::deck::StemKind::Bass => AutomationTarget::StemFaderBass,
+                    crate::deck::StemKind::Vocals => AutomationTarget::StemFaderVocals,
+                    crate::deck::StemKind::Other => AutomationTarget::StemFaderOther,
+                };
+                emit_ramp!(deck, target, clamp01(from), clamp01(to), span, curve);
             }
         }
     }

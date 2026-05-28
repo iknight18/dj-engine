@@ -480,6 +480,37 @@ fn tempo_ramp_inverted_span_is_dropped() {
 }
 
 #[test]
+fn stem_fader_compiles_to_stem_fader_automation() {
+    let outgoing = track();
+    let incoming = track();
+    let plan = plan_16();
+    let ctx = make_ctx(&outgoing, &incoming, &plan, 0);
+
+    let script = TransitionScript {
+        length_bars: 16,
+        phases: vec![Phase::StemFader {
+            deck: DeckRole::Incoming,
+            stem: dj_engine::deck::StemKind::Vocals,
+            from: 0.0,
+            to: 1.0,
+            span: bars(0.0, 4.0),
+            curve: Curve::Linear,
+        }],
+        outgoing_init: None,
+        incoming_init: None,
+    };
+    let out = compile(&script, &ctx);
+    assert_eq!(out.incoming_automations.len(), 1);
+    let a = &out.incoming_automations[0];
+    assert_eq!(a.target, AutomationTarget::StemFaderVocals);
+    assert_eq!(a.curve, Curve::Linear);
+    assert!((a.from - 0.0).abs() < 1e-9);
+    assert!((a.to - 1.0).abs() < 1e-9);
+    assert_eq!(a.t_start_frames, 0);
+    assert_eq!(a.t_end_frames, 4 * 88200);
+}
+
+#[test]
 fn tempo_ramp_zero_length_span_emits_one_frame_step() {
     let outgoing = track();
     let incoming = track();
