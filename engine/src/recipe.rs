@@ -1037,6 +1037,9 @@ pub fn pick_recipe_with_scores(
         RecipeChoice::ThreeBandSwap,
         RecipeChoice::EchoThrow,
         RecipeChoice::HighsFirst,
+        RecipeChoice::Drop,
+        RecipeChoice::BreakdownBridge,
+        RecipeChoice::DoubleDrop,
     ];
     let jitter_range = 0.04;
     let mut scored: Vec<(RecipeChoice, f64)> = Vec::with_capacity(candidates.len());
@@ -1081,6 +1084,9 @@ pub fn pick_recipe(
         RecipeChoice::ThreeBandSwap,
         RecipeChoice::EchoThrow,
         RecipeChoice::HighsFirst,
+        RecipeChoice::Drop,
+        RecipeChoice::BreakdownBridge,
+        RecipeChoice::DoubleDrop,
     ];
 
     let mut best = (RecipeChoice::EqualPower, f64::MIN);
@@ -1118,6 +1124,9 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
         RecipeChoice::ThreeBandSwap => 8,
         RecipeChoice::EchoThrow => 9,
         RecipeChoice::HighsFirst => 10,
+        RecipeChoice::Drop => 11,
+        RecipeChoice::BreakdownBridge => 12,
+        RecipeChoice::DoubleDrop => 13,
     }
 }
 
@@ -1136,6 +1145,9 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
         RecipeChoice::ThreeBandSwap,
         RecipeChoice::EchoThrow,
         RecipeChoice::HighsFirst,
+        RecipeChoice::Drop,
+        RecipeChoice::BreakdownBridge,
+        RecipeChoice::DoubleDrop,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
         h = h
@@ -1280,6 +1292,38 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.30
             } else {
                 0.10
+            }
+        }
+        RecipeChoice::Drop => {
+            let big_ramp = inputs.energy_delta > 0.20 && inputs.phrase_aligned;
+            let modest_ramp = inputs.energy_delta > 0.10 && inputs.phrase_aligned;
+            if big_ramp {
+                0.75
+            } else if modest_ramp {
+                0.40
+            } else {
+                0.10
+            }
+        }
+        RecipeChoice::BreakdownBridge => {
+            let big_winddown = inputs.energy_delta < -0.20 && inputs.phrase_aligned;
+            let modest_winddown = inputs.energy_delta < -0.10 && inputs.phrase_aligned;
+            if big_winddown {
+                0.70
+            } else if modest_winddown {
+                0.40
+            } else {
+                0.10
+            }
+        }
+        RecipeChoice::DoubleDrop => {
+            let jackpot = inputs.length_bars >= 16
+                && inputs.energy_delta.abs() < 0.05
+                && inputs.phrase_aligned;
+            if jackpot {
+                0.80
+            } else {
+                0.05
             }
         }
     }
