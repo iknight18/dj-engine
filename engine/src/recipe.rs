@@ -702,8 +702,7 @@ impl PairScoreInputs {
             .as_ref()
             .map(|b| b.bass)
             .unwrap_or(0.5);
-        let phrase_aligned =
-            outgoing.sidecar.phrase_aligned() && incoming.sidecar.phrase_aligned();
+        let phrase_aligned = outgoing.sidecar.phrase_aligned() && incoming.sidecar.phrase_aligned();
         Self {
             length_bars: plan.length_bars,
             use_eq_swap: plan.use_eq_swap,
