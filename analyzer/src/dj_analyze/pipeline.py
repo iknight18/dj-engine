@@ -25,10 +25,10 @@ from .sidecar import is_fresh, load_sidecar, save_sidecar
 log = logging.getLogger("dj_analyze.pipeline")
 
 
-def _analyze_one(args: tuple[Path, Path]) -> tuple[Path, dict[str, Any]]:
+def _analyze_one(args: tuple[Path, Path, Path | None]) -> tuple[Path, dict[str, Any]]:
     """Worker entry point — must be top-level for multiprocessing pickling."""
-    track, sidecar = args
-    return sidecar, analyze_track(track)
+    track, sidecar, stems_root = args
+    return sidecar, analyze_track(track, stems_root=stems_root)
 
 
 def run_pipeline(
@@ -45,6 +45,11 @@ def run_pipeline(
     if not source_dir.exists() or not source_dir.is_dir():
         raise FileNotFoundError(f"Source dir not found: {source_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Per spec: stems land alongside the sidecar dir under "<output_dir>-stems".
+    # e.g. analyzed-real -> analyzed-real-stems
+    stems_root = output_dir.parent / f"{output_dir.name}-stems"
+    stems_root.mkdir(parents=True, exist_ok=True)
 
     tracks = list(discover_audio_files(source_dir))
     todo: list[tuple[Path, Path]] = []
@@ -70,7 +75,7 @@ def run_pipeline(
 
         if workers <= 1:
             for track, sidecar in todo:
-                _process_one(track, sidecar, on_error=lambda: None)
+                _process_one(track, sidecar, stems_root=stems_root, on_error=lambda: None)
                 data = load_sidecar(sidecar)
                 if "error" in data:
                     n_errors += 1
@@ -80,7 +85,7 @@ def run_pipeline(
         else:
             with ProcessPoolExecutor(max_workers=workers) as pool:
                 futures = {
-                    pool.submit(_analyze_one, (track, sidecar)): (track, sidecar)
+                    pool.submit(_analyze_one, (track, sidecar, stems_root)): (track, sidecar)
                     for track, sidecar in todo
                 }
                 for future in as_completed(futures):
@@ -103,7 +108,9 @@ def run_pipeline(
     return n_processed, n_skipped, n_errors
 
 
-def _process_one(track: Path, sidecar: Path, *, on_error: Callable[[], None]) -> None:
+def _process_one(
+    track: Path, sidecar: Path, *, stems_root: Path | None, on_error: Callable[[], None]
+) -> None:
     """Single-worker codepath: analyze and save in this process."""
-    data = analyze_track(track)
+    data = analyze_track(track, stems_root=stems_root)
     save_sidecar(sidecar, data)

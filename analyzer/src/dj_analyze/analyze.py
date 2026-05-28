@@ -5,6 +5,7 @@ Returns a dict matching schema/sidecar.schema.json v2.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,15 @@ from .detect_downbeats import compute_chroma_ssm, detect_downbeats, detect_phras
 from .detect_energy import detect_energy
 from .detect_key import detect_key
 from .detect_novelty import EMPTY_NOVELTY, detect_novelty
+from .detect_stems import detect_stems
 from .mixability import classify
 
 SCHEMA_VERSION = 2
 
+_log = logging.getLogger("dj_analyze.analyze")
 
-def analyze_track(path: Path) -> dict[str, Any]:
+
+def analyze_track(path: Path, *, stems_root: Path | None = None) -> dict[str, Any]:
     """Analyze one audio file. Returns a sidecar-shaped dict (schema v2)."""
     stat = path.stat()
     base: dict[str, Any] = {
@@ -112,5 +116,26 @@ def analyze_track(path: Path) -> dict[str, Any]:
         out["phrase_confidence"] = float(phrase_result.confidence)
         if mix["is_phrase_aligned"] and phrase_result.boundaries:
             out["phrase_boundaries_seconds"] = phrase_result.boundaries
+
+    if stems_root is not None:
+        try:
+            sa = detect_stems(
+                audio=audio,
+                sr=sr,
+                downbeats_seconds=db_result.downbeats,
+                track_basename=path.stem,
+                stems_root=stems_root,
+            )
+            out["stems"] = {
+                "drum_density": sa.drum_density,
+                "bass_density": sa.bass_density,
+                "vocal_density": sa.vocal_density,
+                "vocal_segments": [[s, e] for s, e in sa.vocal_segments],
+                "energy_per_stem": sa.energy_per_stem,
+                "demucs_version": sa.demucs_version,
+                "model": sa.model,
+            }
+        except Exception as e:
+            _log.warning("detect_stems failed for %s: %s", path, e)
 
     return out
