@@ -4,6 +4,8 @@
 //! fields left as None. The `beatmatchable()` / `phrase_aligned()` helpers paper
 //! over the v1/v2 difference for callers.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -11,6 +13,24 @@ pub struct BandValues {
     pub bass: f64,
     pub mid: f64,
     pub high: f64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Stems {
+    #[serde(default)]
+    pub drum_density: Vec<f64>,
+    #[serde(default)]
+    pub bass_density: Vec<f64>,
+    #[serde(default)]
+    pub vocal_density: Vec<f64>,
+    #[serde(default)]
+    pub vocal_segments: Vec<[f64; 2]>,
+    #[serde(default)]
+    pub energy_per_stem: HashMap<String, f64>,
+    #[serde(default)]
+    pub demucs_version: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -71,6 +91,12 @@ pub struct Sidecar {
     pub is_beatmatchable: Option<bool>,
     #[serde(default)]
     pub is_phrase_aligned: Option<bool>,
+
+    /// Stem-separation analytics (Demucs). Optional — older sidecars and
+    /// error sidecars won't have it; the engine logs the data but does not
+    /// drive selection on it (that's Phase D).
+    #[serde(default)]
+    pub stems: Option<Stems>,
 }
 
 impl Sidecar {

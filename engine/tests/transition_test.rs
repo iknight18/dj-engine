@@ -63,6 +63,7 @@ fn sc_v2(
         band_energy_means: None,
         is_beatmatchable: Some(beatmatchable),
         is_phrase_aligned: Some(phrase_aligned),
+        stems: None,
     }
 }
 

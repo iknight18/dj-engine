@@ -47,6 +47,7 @@ fn sidecar_with(bpm: f64, cue_out: f64) -> Sidecar {
         band_energy_curves: None,
         is_beatmatchable: None,
         is_phrase_aligned: None,
+        stems: None,
     }
 }
 

@@ -138,3 +138,38 @@ fn beatmatchable_false_when_both_absent() {
     assert!(!sc.beatmatchable());
     assert!(!sc.phrase_aligned());
 }
+
+#[test]
+fn deserializes_sidecar_with_stems_block() {
+    let json = r#"{
+        "schema_version": 2,
+        "analyzer_version": "0.4.0",
+        "source_path": "test.mp3",
+        "source_mtime": 0.0,
+        "source_size_bytes": 0,
+        "stems": {
+            "drum_density": [0.1, 0.5, 0.9],
+            "bass_density": [0.2, 0.4, 0.8],
+            "vocal_density": [0.0, 0.3, 0.6],
+            "vocal_segments": [[10.0, 20.0]],
+            "energy_per_stem": { "drums": 0.7, "vocals": 0.4 },
+            "demucs_version": "4.0.1",
+            "model": "htdemucs"
+        }
+    }"#;
+    let sc: Sidecar = serde_json::from_str(json).expect("should parse");
+    let stems = sc.stems.expect("stems should be present");
+    assert_eq!(stems.drum_density.len(), 3);
+    assert_eq!(stems.vocal_segments.len(), 1);
+    assert_eq!(stems.vocal_segments[0], [10.0, 20.0]);
+    assert!((stems.energy_per_stem["drums"] - 0.7).abs() < 1e-9);
+    assert_eq!(stems.model.as_deref(), Some("htdemucs"));
+    assert_eq!(stems.demucs_version.as_deref(), Some("4.0.1"));
+}
+
+#[test]
+fn deserializes_sidecar_without_stems_block() {
+    // The existing v1 fixture has no stems block.
+    let sc: Sidecar = serde_json::from_str(VALID_JSON).unwrap();
+    assert!(sc.stems.is_none());
+}

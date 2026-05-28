@@ -34,6 +34,7 @@ fn track(path: &str, bpm: f64, key: &str, energy: f64, mixable: bool) -> LoadedT
         band_energy_means: None,
         is_beatmatchable: None,
         is_phrase_aligned: None,
+        stems: None,
     };
     LoadedTrack {
         sidecar_path: path.into(),

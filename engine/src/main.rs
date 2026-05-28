@@ -115,6 +115,30 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         };
+        let current_vocal_segs = current
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| s.vocal_segments.len())
+            .unwrap_or(0);
+        let current_drum_density_mean = current
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| mean_or_zero(&s.drum_density))
+            .unwrap_or(0.0);
+        let next_vocal_segs = next_track
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| s.vocal_segments.len())
+            .unwrap_or(0);
+        let next_drum_density_mean = next_track
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| mean_or_zero(&s.drum_density))
+            .unwrap_or(0.0);
         info!(
             current = %short_name(&current.sidecar.source_path),
             current_bpm = current.sidecar.bpm.unwrap_or(0.0),
@@ -122,12 +146,16 @@ async fn main() -> anyhow::Result<()> {
             current_energy = current.sidecar.energy_mean.unwrap_or(0.0),
             current_bass = current.sidecar.band_energy_means.as_ref().map(|b| b.bass).unwrap_or(0.0),
             current_phrase_aligned = current.sidecar.phrase_aligned(),
+            current_vocal_segments = current_vocal_segs,
+            current_drum_density_mean,
             next = %short_name(&next_track.sidecar.source_path),
             next_bpm = next_track.sidecar.bpm.unwrap_or(0.0),
             next_key = next_track.sidecar.key.as_deref().unwrap_or("?"),
             next_energy = next_track.sidecar.energy_mean.unwrap_or(0.0),
             next_bass = next_track.sidecar.band_energy_means.as_ref().map(|b| b.bass).unwrap_or(0.0),
             next_phrase_aligned = next_track.sidecar.phrase_aligned(),
+            next_vocal_segments = next_vocal_segs,
+            next_drum_density_mean,
             "selector picked"
         );
 
@@ -391,6 +419,16 @@ fn short_name(source_path: &str) -> &str {
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(source_path)
+}
+
+/// Mean of a slice, or 0.0 for the empty case. Used to flatten per-bar
+/// density arrays into a single number for log lines.
+fn mean_or_zero(v: &[f64]) -> f64 {
+    if v.is_empty() {
+        0.0
+    } else {
+        v.iter().sum::<f64>() / v.len() as f64
+    }
 }
 
 /// Maps a `RecipeChoice` to its canonical name string. Mirrors `recipe_name` above.

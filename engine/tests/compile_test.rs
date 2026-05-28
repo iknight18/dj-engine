@@ -41,6 +41,7 @@ fn sidecar_120() -> Sidecar {
         band_energy_curves: None,
         is_beatmatchable: None,
         is_phrase_aligned: None,
+        stems: None,
     }
 }
 
