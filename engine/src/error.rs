@@ -26,6 +26,9 @@ pub enum EngineError {
     #[error("config error: {0}")]
     Config(String),
 
+    #[error("stems unavailable for {0:?}")]
+    StemsUnavailable(PathBuf),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

@@ -107,6 +107,7 @@ use crate::ffmpeg::{CHANNELS, SAMPLE_RATE};
 
 /// One PCM source within a deck. The deck plays through a queue of these,
 /// advancing to the next when the current is exhausted.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum DeckSource {
     /// Long-running ffmpeg decoder (with or without atempo). Boxed because
     /// `PlayingDecoder` (containing tokio `Child` + `ChildStdout`) is large
@@ -117,12 +118,31 @@ pub(crate) enum DeckSource {
         pcm: Vec<f32>,
         offset_samples: usize,
     },
+    /// Four mono PCM buffers (44100 Hz) — drums, bass, vocals, other — loaded
+    /// eagerly at cue time from Demucs sidecar files. The `pull` path here
+    /// returns interleaved 4-channel frames so `Deck::pull` can apply per-stem
+    /// faders + duplicate to stereo. The Vecs only live on the heap (the
+    /// enum stays small), so `clippy::large_enum_variant` is silenced above.
+    Stems {
+        drums: Vec<f32>,
+        bass: Vec<f32>,
+        vocals: Vec<f32>,
+        other: Vec<f32>,
+        position: usize,
+    },
 }
 
 impl DeckSource {
     /// Pull up to `n_frames` of interleaved stereo PCM. Returns a buffer that
     /// may be shorter than `n_frames * 2` if the source is exhausted.
-    pub(crate) async fn pull(&mut self, n_frames: usize) -> Result<Vec<f32>> {
+    ///
+    /// `stem_faders` is only consulted by the `Stems` variant; other variants
+    /// ignore it.
+    pub(crate) async fn pull(
+        &mut self,
+        n_frames: usize,
+        stem_faders: &[f32; 4],
+    ) -> Result<Vec<f32>> {
         match self {
             DeckSource::Decoder(decoder) => decoder.read_frames(n_frames).await,
             DeckSource::Buffer {
@@ -135,6 +155,32 @@ impl DeckSource {
                 *offset_samples = end;
                 Ok(out)
             }
+            DeckSource::Stems {
+                drums,
+                bass,
+                vocals,
+                other,
+                position,
+            } => {
+                // Per-frame: mix the 4 mono stems weighted by their faders,
+                // then duplicate to L/R interleaved. Stops early if any stem
+                // is exhausted (they're truncated to a common length at cue time).
+                let len = drums.len();
+                let mut out: Vec<f32> = Vec::with_capacity(n_frames * (CHANNELS as usize));
+                for _ in 0..n_frames {
+                    if *position >= len {
+                        break;
+                    }
+                    let mixed = drums[*position] * stem_faders[0]
+                        + bass[*position] * stem_faders[1]
+                        + vocals[*position] * stem_faders[2]
+                        + other[*position] * stem_faders[3];
+                    out.push(mixed);
+                    out.push(mixed);
+                    *position += 1;
+                }
+                Ok(out)
+            }
         }
     }
 
@@ -145,6 +191,9 @@ impl DeckSource {
                 pcm,
                 offset_samples,
             } => *offset_samples >= pcm.len(),
+            DeckSource::Stems {
+                drums, position, ..
+            } => *position >= drums.len(),
         }
     }
 }
@@ -242,6 +291,7 @@ impl Deck {
         self.state.play_state = PlayState::Stopped;
         self.state.fader = 0.0;
         self.state.tempo = 1.0;
+        self.state.stem_faders = [1.0, 1.0, 1.0, 1.0];
         self.source_position_seconds = 0.0;
         self.source_end_seconds = f64::INFINITY;
         self.ramp_materialized_for = None;
@@ -306,7 +356,36 @@ impl Deck {
 }
 
 use crate::library::LoadedTrack;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Resolve the on-disk stems directory for a sidecar JSON path.
+///
+/// Example: sidecar at `C:\...\analyzed-real\001-song.mp3.json`
+///   →  stems at `C:\...\analyzed-real-stems\001-song.mp3\`
+///
+/// The mapping mirrors the analyzer's stem-output layout: it appends `-stems`
+/// to the analyzed directory name, then descends into a subdirectory named
+/// after the sidecar with `.json` stripped (but `.mp3`/extension preserved,
+/// to match Demucs's per-track output dir).
+///
+/// Returns `None` if any path component can't be derived, or the directory
+/// doesn't exist.
+pub fn stems_dir_for(sidecar_path: &Path) -> Option<PathBuf> {
+    let analyzed_dir = sidecar_path.parent()?;
+    let stems_root_name = format!("{}-stems", analyzed_dir.file_name()?.to_string_lossy());
+    let stems_root = analyzed_dir.parent()?.join(stems_root_name);
+    let basename = sidecar_path
+        .file_name()?
+        .to_string_lossy()
+        .trim_end_matches(".json")
+        .to_string();
+    let dir = stems_root.join(&basename);
+    if dir.exists() {
+        Some(dir)
+    } else {
+        None
+    }
+}
 
 impl Deck {
     /// Load a track and spawn the decoder positioned at `source_start_seconds`,
@@ -334,6 +413,75 @@ impl Deck {
         self.state.play_state = PlayState::Cueing;
         self.state.fader = 0.0;
         self.state.tempo = tempo;
+        self.state.stem_faders = [1.0, 1.0, 1.0, 1.0];
+        self.source_position_seconds = source_start_seconds;
+        self.source_end_seconds = cue_out;
+        self.ramp_materialized_for = None;
+        self.reset_eq();
+        self.reset_filter();
+        self.reset_effects();
+        Ok(())
+    }
+
+    /// Stems-mode cue: locate the per-track stems directory from `track`'s
+    /// sidecar path, decode all 4 mono PCM stems (drums/bass/vocals/other)
+    /// at 44.1 kHz, and push a single `DeckSource::Stems` onto the source
+    /// queue. Per-stem faders are reset to 1.0 (audible). The mixed `fader`
+    /// is left at 0.0 to match `cue()` semantics — the scheduler ramps it.
+    ///
+    /// Returns `EngineError::StemsUnavailable` when the stems directory is
+    /// missing. Errors out of `decode_to_mono_pcm_44100` propagate as
+    /// `EngineError::Ffmpeg`.
+    pub async fn cue_stems(
+        &mut self,
+        track: LoadedTrack,
+        source_start_seconds: f64,
+        tempo: f64,
+    ) -> Result<()> {
+        let stems_dir = stems_dir_for(&track.sidecar_path)
+            .ok_or_else(|| crate::error::EngineError::StemsUnavailable(track.sidecar_path.clone()))?;
+
+        let drums =
+            crate::ffmpeg::decoder::decode_to_mono_pcm_44100(&stems_dir.join("drums.mp3")).await?;
+        let bass =
+            crate::ffmpeg::decoder::decode_to_mono_pcm_44100(&stems_dir.join("bass.mp3")).await?;
+        let vocals =
+            crate::ffmpeg::decoder::decode_to_mono_pcm_44100(&stems_dir.join("vocals.mp3")).await?;
+        let other =
+            crate::ffmpeg::decoder::decode_to_mono_pcm_44100(&stems_dir.join("other.mp3")).await?;
+
+        // Truncate all stems to the shortest so the read loop never drifts.
+        let len = drums.len().min(bass.len()).min(vocals.len()).min(other.len());
+        let mut drums = drums;
+        drums.truncate(len);
+        let mut bass = bass;
+        bass.truncate(len);
+        let mut vocals = vocals;
+        vocals.truncate(len);
+        let mut other = other;
+        other.truncate(len);
+
+        let cue_out = track
+            .sidecar
+            .cue_out_seconds
+            .unwrap_or(track.sidecar.duration_seconds.unwrap_or(f64::INFINITY));
+        // Position in samples from the start of the (mono 44.1 kHz) buffer.
+        let position = ((source_start_seconds.max(0.0)) * (SAMPLE_RATE as f64)) as usize;
+        let position = position.min(len);
+
+        self.sources.clear();
+        self.sources.push_back(DeckSource::Stems {
+            drums,
+            bass,
+            vocals,
+            other,
+            position,
+        });
+        self.state.source_path = Some(track.sidecar.source_path.clone());
+        self.state.play_state = PlayState::Cueing;
+        self.state.fader = 0.0;
+        self.state.tempo = tempo;
+        self.state.stem_faders = [1.0, 1.0, 1.0, 1.0];
         self.source_position_seconds = source_start_seconds;
         self.source_end_seconds = cue_out;
         self.ramp_materialized_for = None;
@@ -397,7 +545,7 @@ impl Deck {
                 let Some(source) = self.sources.front_mut() else {
                     break;
                 };
-                let chunk = source.pull(remaining_frames).await?;
+                let chunk = source.pull(remaining_frames, &self.state.stem_faders).await?;
                 if chunk.is_empty() {
                     self.sources.pop_front();
                     continue;

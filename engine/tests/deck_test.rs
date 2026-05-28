@@ -384,6 +384,48 @@ async fn loop_gate_freezes_source_position() {
     );
 }
 
+#[test]
+fn stems_dir_for_resolves_sibling_stems_directory() {
+    use dj_engine::deck::stems_dir_for;
+
+    // Build a temp filesystem layout: analyzed/foo.mp3.json + analyzed-stems/foo.mp3/{drums,bass,vocals,other}.mp3
+    let tmp = std::env::temp_dir().join(format!(
+        "djengine-stems-dir-test-{}",
+        std::process::id()
+    ));
+    let analyzed = tmp.join("analyzed");
+    let stems_root = tmp.join("analyzed-stems");
+    let track_dir = stems_root.join("foo.mp3");
+    std::fs::create_dir_all(&analyzed).unwrap();
+    std::fs::create_dir_all(&track_dir).unwrap();
+    let sidecar_path = analyzed.join("foo.mp3.json");
+    std::fs::write(&sidecar_path, "{}").unwrap();
+
+    let resolved = stems_dir_for(&sidecar_path).expect("should resolve");
+    assert_eq!(resolved, track_dir);
+
+    // Cleanup (best-effort).
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn stems_dir_for_returns_none_when_missing() {
+    use dj_engine::deck::stems_dir_for;
+    let path = std::env::temp_dir()
+        .join("djengine-nonexistent-analyzed")
+        .join("nope.mp3.json");
+    assert!(stems_dir_for(&path).is_none());
+}
+
+#[tokio::test]
+async fn cue_stems_returns_error_when_stems_directory_absent() {
+    let mut d = Deck::new(DeckId::A);
+    // fixture_track's sidecar_path is empty PathBuf so stems_dir_for returns None.
+    let track = fixture_track();
+    let res = d.cue_stems(track, 0.0, 1.0).await;
+    assert!(res.is_err(), "expected StemsUnavailable error");
+}
+
 #[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);

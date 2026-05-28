@@ -152,3 +152,53 @@ impl PlayingDecoder {
         let _ = self.child.wait().await;
     }
 }
+
+/// Decode an audio file to mono f32 PCM at 44100 Hz. Used for stem loading
+/// in `Deck::cue_stems`: reads stdout to EOF, reinterprets little-endian f32
+/// bytes as a `Vec<f32>`. Runs ffmpeg synchronously (one-shot), so this is
+/// O(file-duration / decode-rate); on modern hardware ~10x realtime for MP3,
+/// so a 4-minute stem decodes in roughly 25 seconds total (4 stems = ~100 s).
+/// Acceptable for stems mode since the scheduler arms transitions a bar ahead
+/// of when they fire.
+pub async fn decode_to_mono_pcm_44100(path: &Path) -> Result<Vec<f32>> {
+    let mut cmd = Command::new("ffmpeg");
+    cmd.arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-i")
+        .arg(path)
+        .arg("-ac")
+        .arg("1")
+        .arg("-ar")
+        .arg(SAMPLE_RATE.to_string())
+        .arg("-f")
+        .arg("f32le")
+        .arg("-")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| EngineError::Ffmpeg(format!("spawn: {e}")))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| EngineError::Ffmpeg("no stdout pipe".into()))?;
+    let mut buf = Vec::new();
+    stdout
+        .read_to_end(&mut buf)
+        .await
+        .map_err(EngineError::Io)?;
+    let status = child.wait().await.map_err(EngineError::Io)?;
+    if !status.success() {
+        return Err(EngineError::Ffmpeg(format!(
+            "ffmpeg exited with {status} while decoding {}",
+            path.display()
+        )));
+    }
+    let mut samples = Vec::with_capacity(buf.len() / 4);
+    for chunk in buf.chunks_exact(4) {
+        samples.push(f32::from_le_bytes(chunk.try_into().unwrap()));
+    }
+    Ok(samples)
+}
