@@ -19,6 +19,7 @@ pub mod mixer;
 pub mod phrase;
 pub mod recency;
 pub mod recipe;
+pub mod recipe_recency;
 pub mod scheduler;
 pub mod selector;
 pub mod sidecar;
