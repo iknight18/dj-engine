@@ -1284,6 +1284,100 @@ impl Recipe for BassSwapStemAware {
     }
 }
 
+/// `BreakdownIntoDrop`: 8-bar transition timed to outgoing's drum-density
+/// valley and incoming's drum-density peak. During the window, outgoing's
+/// drum stem progressively drops (the breakdown). At the first incoming-drum-
+/// peak bar within the window (drum_density >= 0.85; fallback bar 4),
+/// hard-cut: outgoing fader -> 0, incoming fader -> 1.
+pub struct BreakdownIntoDrop;
+
+impl Recipe for BreakdownIntoDrop {
+    fn name(&self) -> &'static str {
+        "breakdown_into_drop"
+    }
+
+    fn requires_stems(&self) -> bool {
+        true
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        use crate::deck::StemKind;
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = 8.0_f64;
+
+        let incoming_bar_seconds = (60.0 / incoming_bpm) * 4.0;
+        let incoming_intro_bar =
+            (ctx.plan.incoming_crossfade_start_seconds / incoming_bar_seconds) as usize;
+        let incoming_drum_density = ctx
+            .incoming
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| s.drum_density.clone())
+            .unwrap_or_default();
+
+        // First incoming-drum-peak bar in [intro, intro + 8]; fallback bar 4.
+        let drop_bar_track = first_bar_at_or_above(
+            &incoming_drum_density,
+            incoming_intro_bar,
+            incoming_intro_bar + 8,
+            0.85,
+        );
+        let drop_bar_window = drop_bar_track
+            .map(|b| (b.saturating_sub(incoming_intro_bar)) as f64)
+            .unwrap_or(4.0)
+            .clamp(0.0, l);
+        // Breakdown ramp duration: at least 1 bar (avoid degenerate 0-span).
+        let breakdown_end = drop_bar_window.max(1.0);
+
+        TransitionScript {
+            length_bars: 8,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                // Outgoing's drum stem progressively drops over the breakdown.
+                Phase::StemFader {
+                    deck: DeckRole::Outgoing,
+                    stem: StemKind::Drums,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, breakdown_end),
+                    curve: Curve::Linear,
+                },
+                // Outgoing mixed fader holds at 1.0 then hard-cuts at the drop bar.
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(drop_bar_window, drop_bar_window),
+                    curve: Curve::Step,
+                },
+                // Incoming silent until the drop, then hard-cuts in.
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(drop_bar_window, drop_bar_window),
+                    curve: Curve::Step,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
