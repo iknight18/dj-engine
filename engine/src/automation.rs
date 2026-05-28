@@ -12,6 +12,10 @@ pub enum AutomationTarget {
     Filter,
     EchoMix,
     LoopGate,
+    StemFaderDrums,
+    StemFaderBass,
+    StemFaderVocals,
+    StemFaderOther,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -156,6 +160,18 @@ fn apply_value(target: AutomationTarget, v: f64, state: &mut crate::deck::DeckSt
         }
         AutomationTarget::LoopGate => {
             state.loop_gate = v.clamp(0.0, 1.0);
+        }
+        AutomationTarget::StemFaderDrums => {
+            state.stem_faders[crate::deck::StemKind::Drums as usize] = v.clamp(0.0, 1.0) as f32;
+        }
+        AutomationTarget::StemFaderBass => {
+            state.stem_faders[crate::deck::StemKind::Bass as usize] = v.clamp(0.0, 1.0) as f32;
+        }
+        AutomationTarget::StemFaderVocals => {
+            state.stem_faders[crate::deck::StemKind::Vocals as usize] = v.clamp(0.0, 1.0) as f32;
+        }
+        AutomationTarget::StemFaderOther => {
+            state.stem_faders[crate::deck::StemKind::Other as usize] = v.clamp(0.0, 1.0) as f32;
         }
     }
 }

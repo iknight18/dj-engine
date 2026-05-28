@@ -6,6 +6,15 @@ pub enum DeckId {
     B,
 }
 
+/// One of the four Demucs stems. Cast to `usize` to index `DeckState::stem_faders`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StemKind {
+    Drums = 0,
+    Bass = 1,
+    Vocals = 2,
+    Other = 3,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayState {
     Stopped,
@@ -23,6 +32,9 @@ pub struct DeckState {
     pub filter_knob: f64,
     pub echo_mix: f64,
     pub loop_gate: f64,
+    /// Per-stem faders for `DeckSource::Stems` (drums, bass, vocals, other),
+    /// indexed by `StemKind as usize`. Inert when the deck is in mixed mode.
+    pub stem_faders: [f32; 4],
     pub source_path: Option<String>,
     pub play_state: PlayState,
 }
@@ -38,6 +50,7 @@ impl Default for DeckState {
             filter_knob: 0.0,
             echo_mix: 0.0,
             loop_gate: 0.0,
+            stem_faders: [1.0, 1.0, 1.0, 1.0],
             source_path: None,
             play_state: PlayState::Stopped,
         }
