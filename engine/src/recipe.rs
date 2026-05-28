@@ -43,6 +43,15 @@ pub trait Recipe {
     fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
         crate::recipe_script::compile(&self.build_script(ctx), ctx)
     }
+
+    /// True iff this recipe needs both decks loaded in stems mode (4 separate
+    /// audio buffers per deck). Default `false` — existing recipes use the
+    /// mixed source. The scheduler reads this and dispatches `cue_stems`
+    /// instead of `cue` for incoming, so per-stem fader automations have an
+    /// effect.
+    fn requires_stems(&self) -> bool {
+        false
+    }
 }
 
 /// Build a script using the given recipe, inject any automatic post-processing
