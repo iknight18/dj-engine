@@ -996,25 +996,14 @@ impl Recipe for DoubleDrop {
     }
 }
 
-/// Index of the lowest value in `density[lo..hi]`. Returns `None` if the
-/// slice is empty or `lo >= hi`.
-fn bar_with_min_density(density: &[f64], lo: usize, hi: usize) -> Option<usize> {
-    let hi = hi.min(density.len());
-    if lo >= hi {
-        return None;
-    }
-    let mut best = (lo, density[lo]);
-    for (i, v) in density.iter().enumerate().take(hi).skip(lo + 1) {
-        if *v < best.1 {
-            best = (i, *v);
-        }
-    }
-    Some(best.0)
-}
-
 /// First index in `density[lo..hi]` where `density[i] >= threshold`. Returns
 /// the last index of the slice when no bar passes. Returns `None` for empty
 /// input or `lo >= hi`.
+/// Returns `Some(i)` for the first bar in `[lo, hi)` whose `density[i] >= threshold`.
+/// Returns `None` when no bar in the range passes the threshold (or the range is
+/// empty / past the end of the array). Callers handle the no-peak case explicitly —
+/// e.g., fall back to plain equal-power behavior rather than snapping to an
+/// arbitrary bar at the end of the window.
 fn first_bar_at_or_above(density: &[f64], lo: usize, hi: usize, threshold: f64) -> Option<usize> {
     let hi = hi.min(density.len());
     if lo >= hi {
@@ -1025,7 +1014,7 @@ fn first_bar_at_or_above(density: &[f64], lo: usize, hi: usize, threshold: f64) 
             return Some(i);
         }
     }
-    Some(hi - 1)
+    None
 }
 
 /// `VocalOverlay`: 16-bar layered transition.
@@ -1177,21 +1166,19 @@ impl Recipe for BassSwapStemAware {
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
         let l = 16.0_f64;
 
-        // Map seconds-into-track to bar index for density-array lookups.
-        let outgoing_bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        // Synchronized swap: pick a single bar for both outgoing's kill and
+        // incoming's release. This is the "real DJ" handoff — bass dies on
+        // deck A at the same beat it enters on deck B, no dead-zone gap.
+        //
+        // Choose the bar by finding incoming's first non-trivial bass-density
+        // entry (0.35 catches gradual buildups; 0.7 was too peak-level and
+        // produced multi-bar gaps on tracks with quiet intros). If incoming
+        // never crosses the threshold within the search window, fall back to
+        // bar 8 (mid-window) — a neutral default that still gives both decks
+        // half a window of "with bass" and half of "after bass swap".
         let incoming_bar_seconds = (60.0 / incoming_bpm) * 4.0;
-        let outgoing_outro_bar =
-            (ctx.plan.outgoing_crossfade_start_seconds / outgoing_bar_seconds) as usize;
         let incoming_intro_bar =
             (ctx.plan.incoming_crossfade_start_seconds / incoming_bar_seconds) as usize;
-
-        let outgoing_bass_density = ctx
-            .outgoing
-            .sidecar
-            .stems
-            .as_ref()
-            .map(|s| s.bass_density.clone())
-            .unwrap_or_default();
         let incoming_bass_density = ctx
             .incoming
             .sidecar
@@ -1200,29 +1187,21 @@ impl Recipe for BassSwapStemAware {
             .map(|s| s.bass_density.clone())
             .unwrap_or_default();
 
-        // Outgoing kill: lowest-density bar in window's last quarter [12, 16].
-        let outgoing_kill_bar_track = bar_with_min_density(
-            &outgoing_bass_density,
-            outgoing_outro_bar + 12,
-            outgoing_outro_bar + 16,
-        );
-        let outgoing_kill_bar_window = outgoing_kill_bar_track
-            .map(|b| (b.saturating_sub(outgoing_outro_bar)) as f64)
-            .unwrap_or(14.0)
-            .clamp(0.0, l);
-
-        // Incoming release: first bar in [0, 16] where bass_density >= 0.7;
-        // fall back to bar 2.
         let incoming_release_bar_track = first_bar_at_or_above(
             &incoming_bass_density,
             incoming_intro_bar,
             incoming_intro_bar + 16,
-            0.7,
+            0.35,
         );
-        let incoming_release_bar_window = incoming_release_bar_track
+        let swap_bar_window = incoming_release_bar_track
             .map(|b| (b.saturating_sub(incoming_intro_bar)) as f64)
-            .unwrap_or(2.0)
-            .clamp(0.0, l);
+            .unwrap_or(8.0)
+            .clamp(2.0, l - 1.0); // never bar 0 (no time to crossfade) or last (instant cut)
+
+        // outgoing_kill_bar = incoming_release_bar = swap_bar_window. Both
+        // step automations fire at the same bar of the transition window.
+        let outgoing_kill_bar_window = swap_bar_window;
+        let incoming_release_bar_window = swap_bar_window;
 
         TransitionScript {
             length_bars: 16,
