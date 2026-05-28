@@ -12,6 +12,7 @@ use dj_engine::icecast_meta::{self, MetadataConfig};
 use dj_engine::library::{load_library, LoadedTrack};
 use dj_engine::logging_setup;
 use dj_engine::recency::RecencyRing;
+use dj_engine::recipe_recency::RecipeRecency;
 use dj_engine::selector::Selector;
 use dj_engine::supervisor;
 
@@ -97,6 +98,8 @@ async fn main() -> anyhow::Result<()> {
 
     let mut recency = RecencyRing::new(20);
     recency.record(current.sidecar.source_path.clone());
+    let recipe_recency_window = cli.recipe_recency_window.unwrap_or(5);
+    let mut recipe_recency = RecipeRecency::new(recipe_recency_window);
     let mut energy = EnergyTarget::new(current.sidecar.energy_mean.unwrap_or(0.5));
     let http = reqwest::Client::new();
     icecast_meta::update_now_playing(&http, &metadata_cfg, &current.sidecar.source_path).await;
@@ -161,7 +164,8 @@ async fn main() -> anyhow::Result<()> {
         // Arm the transition. If --force-recipe was passed, override
         // `pick_recipe`'s natural choice and log the divergence so the operator
         // can see they're not seeing planner behavior.
-        let natural_choice = dj_engine::recipe::pick_recipe_plan_only(&plan);
+        let natural_choice =
+            dj_engine::recipe::pick_recipe(&plan, &current, &next_track, &recipe_recency);
         let choice = cli
             .force_recipe
             .map(|fr| fr.to_recipe_choice())
@@ -309,6 +313,7 @@ async fn main() -> anyhow::Result<()> {
             "transition complete"
         );
 
+        recipe_recency.record(choice);
         recency.record(next_track.sidecar.source_path.clone());
         energy.advance();
         icecast_meta::update_now_playing(&http, &metadata_cfg, &next_track.sidecar.source_path)

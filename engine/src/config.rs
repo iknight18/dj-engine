@@ -33,6 +33,11 @@ pub struct Cli {
     /// Mainly for manual testing of new recipes.
     #[arg(long, value_enum)]
     pub force_recipe: Option<ForceRecipe>,
+
+    /// Penalize recipes used in the last N transitions when scoring (so the same
+    /// recipe doesn't fire repeatedly). Default 5. Pass 0 to disable.
+    #[arg(long)]
+    pub recipe_recency_window: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
