@@ -374,10 +374,18 @@ pub fn stems_dir_for(sidecar_path: &Path) -> Option<PathBuf> {
     let analyzed_dir = sidecar_path.parent()?;
     let stems_root_name = format!("{}-stems", analyzed_dir.file_name()?.to_string_lossy());
     let stems_root = analyzed_dir.parent()?.join(stems_root_name);
+    // Sidecar names are like "001-song.mp3.json"; the analyzer writes stems to
+    // a directory named "001-song" (the audio basename, without any extension).
+    // Strip ".json" first, then strip any common audio extension.
     let basename = sidecar_path
         .file_name()?
         .to_string_lossy()
         .trim_end_matches(".json")
+        .trim_end_matches(".mp3")
+        .trim_end_matches(".wav")
+        .trim_end_matches(".flac")
+        .trim_end_matches(".ogg")
+        .trim_end_matches(".m4a")
         .to_string();
     let dir = stems_root.join(&basename);
     if dir.exists() {
