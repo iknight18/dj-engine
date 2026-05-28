@@ -93,7 +93,31 @@
       "additionalProperties": false
     },
     "is_beatmatchable": { "type": "boolean" },
-    "is_phrase_aligned": { "type": "boolean" }
+    "is_phrase_aligned": { "type": "boolean" },
+
+    "stems": {
+      "type": ["object", "null"],
+      "properties": {
+        "drum_density": { "type": "array", "items": { "type": "number" } },
+        "bass_density": { "type": "array", "items": { "type": "number" } },
+        "vocal_density": { "type": "array", "items": { "type": "number" } },
+        "vocal_segments": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "energy_per_stem": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "demucs_version": { "type": "string" },
+        "model": { "type": "string" }
+      }
+    }
   },
   "additionalProperties": false,
   "allOf": [
