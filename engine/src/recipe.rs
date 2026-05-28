@@ -917,8 +917,10 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             }
         }
         RecipeChoice::EchoThrow => {
+            // L >= 16 only: on shorter windows the echo line accumulates ~13s of
+            // feedback-laden material that dumps audibly when the wet gate opens.
             let smooth = inputs.energy_delta.abs() < 0.10 && inputs.length_bars >= 16;
-            let mild = inputs.energy_delta.abs() < 0.15 && inputs.length_bars >= 8;
+            let mild = inputs.energy_delta.abs() < 0.15 && inputs.length_bars >= 16;
             if smooth {
                 0.65
             } else if mild {
