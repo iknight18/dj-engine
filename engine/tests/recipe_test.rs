@@ -440,10 +440,7 @@ fn echo_out_emits_fader_pair_plus_outgoing_echo_ramp_and_init() {
     assert_eq!(r.incoming_automations.len(), 2);
 
     // Init: outgoing has echo configured; incoming has no init.
-    let init = r
-        .outgoing_init
-        .as_ref()
-        .expect("outgoing_init for EchoOut");
+    let init = r.outgoing_init.as_ref().expect("outgoing_init for EchoOut");
     assert!(init.echo_delay_seconds.is_some());
     assert!((init.echo_feedback.unwrap_or(0.0) - 0.5).abs() < 1e-9);
     assert!(r.incoming_init.is_none());
@@ -472,10 +469,7 @@ fn loop_out_emits_fader_pair_plus_outgoing_loop_gate_and_init() {
     assert_eq!(loop_ons.len(), 2);
 
     // Init: outgoing has loop configured.
-    let init = r
-        .outgoing_init
-        .as_ref()
-        .expect("outgoing_init for LoopOut");
+    let init = r.outgoing_init.as_ref().expect("outgoing_init for LoopOut");
     assert_eq!(init.loop_bars, Some(4));
     assert!(init.loop_bar_seconds.is_some());
 }

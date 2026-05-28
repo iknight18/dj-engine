@@ -72,18 +72,20 @@ fn echo_line_set_params_preserves_buffer() {
     e.set_params(8, 0.5);
     let (l, _r) = e.process(0.0, 0.0);
     // Some non-zero output expected (buffer has prior energy).
-    assert!(l.abs() > 1e-3 || {
-        // Try a few more reads
-        let mut any_nonzero = false;
-        for _ in 0..15 {
-            let (l2, _) = e.process(0.0, 0.0);
-            if l2.abs() > 1e-3 {
-                any_nonzero = true;
-                break;
+    assert!(
+        l.abs() > 1e-3 || {
+            // Try a few more reads
+            let mut any_nonzero = false;
+            for _ in 0..15 {
+                let (l2, _) = e.process(0.0, 0.0);
+                if l2.abs() > 1e-3 {
+                    any_nonzero = true;
+                    break;
+                }
             }
+            any_nonzero
         }
-        any_nonzero
-    });
+    );
 }
 
 #[test]

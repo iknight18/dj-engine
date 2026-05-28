@@ -335,7 +335,14 @@ fn echo_mix_clamped_to_zero_one() {
 #[test]
 fn loop_gate_clamped_and_installed() {
     let mut q = AutomationQueue::new();
-    q.schedule(ramp(AutomationTarget::LoopGate, 0.0, 1.0, Curve::Step, 0, 1));
+    q.schedule(ramp(
+        AutomationTarget::LoopGate,
+        0.0,
+        1.0,
+        Curve::Step,
+        0,
+        1,
+    ));
     let mut s = default_state();
     q.step(1, &mut s);
     assert!((s.loop_gate - 1.0).abs() < 1e-9);
