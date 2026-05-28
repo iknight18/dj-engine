@@ -185,6 +185,9 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
             dj_engine::recipe::RecipeChoice::EchoOut => "echo_out",
             dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
+            dj_engine::recipe::RecipeChoice::ThreeBandSwap => "three_band_swap",
+            dj_engine::recipe::RecipeChoice::EchoThrow => "echo_throw",
+            dj_engine::recipe::RecipeChoice::HighsFirst => "highs_first",
         };
         let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
@@ -289,6 +292,42 @@ async fn main() -> anyhow::Result<()> {
                     &next_track,
                     &plan,
                     &dj_engine::recipe::LoopOut,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::ThreeBandSwap => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::ThreeBandSwap,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::EchoThrow => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::EchoThrow,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::HighsFirst => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::HighsFirst,
                 )
                 .await?
             }

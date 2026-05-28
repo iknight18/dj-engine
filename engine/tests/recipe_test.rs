@@ -641,7 +641,13 @@ fn scored_picks_bass_swap_for_heavy_aligned_pair_no_recency() {
     let (a, b) = bass_heavy_phrase_aligned_pair();
     let plan = standard_blend_plan();
     let recency = RecipeRecency::new(5);
-    assert_eq!(pick_recipe(&plan, &a, &b, &recency), RecipeChoice::BassSwap);
+    // ThreeBandSwap (0.90) now outscores BassSwap (0.85) for bass-heavy
+    // phrase-aligned pairs with length_bars >= 16; accept either.
+    let pick = pick_recipe(&plan, &a, &b, &recency);
+    assert!(
+        pick == RecipeChoice::BassSwap || pick == RecipeChoice::ThreeBandSwap,
+        "expected BassSwap or ThreeBandSwap, got {pick:?}"
+    );
 }
 
 #[test]
@@ -702,4 +708,74 @@ fn pick_recipe_plan_only_preserved_for_legacy_tests() {
         use_eq_swap: true,
     };
     assert_eq!(pick_recipe_plan_only(&plan), RecipeChoice::BassSwap);
+}
+
+#[test]
+fn score_three_band_swap_both_heavy_phrase_aligned_long() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.0,
+        outgoing_bass: 0.7,
+        incoming_bass: 0.6,
+        phrase_aligned: true,
+    };
+    assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.90).abs() < 1e-9);
+}
+
+#[test]
+fn score_three_band_swap_both_heavy_short_window() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 8,
+        use_eq_swap: true,
+        energy_delta: 0.0,
+        outgoing_bass: 0.7,
+        incoming_bass: 0.6,
+        phrase_aligned: true,
+    };
+    assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.70).abs() < 1e-9);
+}
+
+#[test]
+fn score_echo_throw_smooth_long() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: false,
+        energy_delta: 0.05,
+        outgoing_bass: 0.4,
+        incoming_bass: 0.4,
+        phrase_aligned: true,
+    };
+    assert!((score_recipe(RecipeChoice::EchoThrow, &inputs) - 0.65).abs() < 1e-9);
+}
+
+#[test]
+fn score_highs_first_big_ramp_long() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: false,
+        energy_delta: 0.30,
+        outgoing_bass: 0.4,
+        incoming_bass: 0.4,
+        phrase_aligned: true,
+    };
+    assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.85).abs() < 1e-9);
+}
+
+#[test]
+fn score_highs_first_no_ramp_low_score() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: false,
+        energy_delta: 0.0,
+        outgoing_bass: 0.4,
+        incoming_bass: 0.4,
+        phrase_aligned: true,
+    };
+    assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.10).abs() < 1e-9);
 }

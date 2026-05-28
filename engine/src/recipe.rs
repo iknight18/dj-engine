@@ -703,6 +703,9 @@ pub enum RecipeChoice {
     FilterKill,
     EchoOut,
     LoopOut,
+    ThreeBandSwap,
+    EchoThrow,
+    HighsFirst,
 }
 
 /// Legacy plan-only picker. Kept for tests and as a reference baseline.
@@ -735,6 +738,9 @@ pub fn pick_recipe(
         RecipeChoice::FilterKill,
         RecipeChoice::EchoOut,
         RecipeChoice::LoopOut,
+        RecipeChoice::ThreeBandSwap,
+        RecipeChoice::EchoThrow,
+        RecipeChoice::HighsFirst,
     ];
 
     let mut best = (RecipeChoice::EqualPower, f64::MIN);
@@ -769,6 +775,9 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
         RecipeChoice::FilterKill => 5,
         RecipeChoice::EchoOut => 6,
         RecipeChoice::LoopOut => 7,
+        RecipeChoice::ThreeBandSwap => 8,
+        RecipeChoice::EchoThrow => 9,
+        RecipeChoice::HighsFirst => 10,
     }
 }
 
@@ -784,6 +793,9 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
         RecipeChoice::FilterKill,
         RecipeChoice::EchoOut,
         RecipeChoice::LoopOut,
+        RecipeChoice::ThreeBandSwap,
+        RecipeChoice::EchoThrow,
+        RecipeChoice::HighsFirst,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
         h = h
@@ -888,5 +900,46 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             }
         }
         RecipeChoice::LoopOut => 0.30,
+        RecipeChoice::ThreeBandSwap => {
+            let both_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
+            let any_heavy = inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5;
+            let long_enough = inputs.length_bars >= 16;
+            if inputs.phrase_aligned && both_heavy && long_enough {
+                0.90
+            } else if inputs.phrase_aligned && both_heavy {
+                0.70
+            } else if inputs.phrase_aligned && any_heavy {
+                0.50
+            } else {
+                0.20
+            }
+        }
+        RecipeChoice::EchoThrow => {
+            let smooth = inputs.energy_delta.abs() < 0.10 && inputs.length_bars >= 16;
+            let mild = inputs.energy_delta.abs() < 0.15 && inputs.length_bars >= 8;
+            if smooth {
+                0.65
+            } else if mild {
+                0.55
+            } else {
+                0.20
+            }
+        }
+        RecipeChoice::HighsFirst => {
+            let big_ramp = inputs.energy_delta > 0.20
+                && inputs.phrase_aligned
+                && inputs.length_bars >= 16;
+            let med_ramp = inputs.energy_delta > 0.10 && inputs.phrase_aligned;
+            let any_ramp = inputs.energy_delta > 0.05;
+            if big_ramp {
+                0.85
+            } else if med_ramp {
+                0.55
+            } else if any_ramp {
+                0.30
+            } else {
+                0.10
+            }
+        }
     }
 }
