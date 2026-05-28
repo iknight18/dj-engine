@@ -98,16 +98,31 @@ def resolve_octave(primary: float, secondary: float | None) -> float:
 def detect_bpm(audio: np.ndarray, sr: int) -> tuple[float, float]:
     """Estimate global BPM and a confidence score in [0, 1].
 
-    Confidence is computed by running tempo detection on non-overlapping 10-second
-    windows and measuring how tightly the window estimates cluster around the global
-    estimate. A track with perfectly steady tempo gives confidence ≈ 1.0.
+    The global tempo from ``librosa.beat.tempo`` is octave-ambiguous on tracks where
+    the onset envelope is consistent with both X BPM and 2X BPM. We cross-check
+    against a second estimate from ``librosa.beat.beat_track`` (median inter-beat
+    interval), then route both through ``resolve_octave`` which prefers candidates
+    inside the perceptual range [70, 180] BPM.
+
+    Confidence is then computed against the *resolved* BPM, so windows must agree
+    with the corrected value (not the raw librosa output).
     """
     onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
-    global_tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr, aggregate=np.median)
-    bpm = float(global_tempo[0])
 
-    confidence = _tempo_stability(audio, sr, bpm)
-    return bpm, confidence
+    # Primary estimate: median-aggregated tempo over the onset envelope.
+    global_tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr, aggregate=np.median)
+    primary = float(global_tempo[0])
+
+    # Secondary estimate from actual beat positions; may be None if beat_track fails.
+    try:
+        _, beat_frames = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
+    except Exception:
+        beat_frames = None
+    secondary = bpm_from_beats(beat_frames, sr) if beat_frames is not None else None
+
+    resolved = resolve_octave(primary, secondary)
+    confidence = _tempo_stability(audio, sr, resolved)
+    return resolved, confidence
 
 
 def _octave_normalize(window_bpm: float, target_bpm: float) -> float:
