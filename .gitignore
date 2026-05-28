@@ -36,3 +36,5 @@ data/
 *.log
 analyzed/
 analyzed-*/
+analyzed-stems/
+analyzed-*-stems/
