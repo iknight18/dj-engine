@@ -1111,10 +1111,7 @@ fn score_bass_swap_stem_aware_beats_basic_bass_swap_when_stems() {
     };
     let stem_aware = score_recipe(RecipeChoice::BassSwapStemAware, &inputs);
     let basic = score_recipe(RecipeChoice::BassSwap, &inputs);
-    assert!(
-        stem_aware > basic,
-        "stem_aware={stem_aware} basic={basic}"
-    );
+    assert!(stem_aware > basic, "stem_aware={stem_aware} basic={basic}");
 }
 
 #[test]

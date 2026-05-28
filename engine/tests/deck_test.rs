@@ -389,10 +389,7 @@ fn stems_dir_for_resolves_sibling_stems_directory() {
     use dj_engine::deck::stems_dir_for;
 
     // Build a temp filesystem layout: analyzed/foo.mp3.json + analyzed-stems/foo.mp3/{drums,bass,vocals,other}.mp3
-    let tmp = std::env::temp_dir().join(format!(
-        "djengine-stems-dir-test-{}",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("djengine-stems-dir-test-{}", std::process::id()));
     let analyzed = tmp.join("analyzed");
     let stems_root = tmp.join("analyzed-stems");
     let track_dir = stems_root.join("foo.mp3");

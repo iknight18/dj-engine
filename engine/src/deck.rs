@@ -438,8 +438,9 @@ impl Deck {
         source_start_seconds: f64,
         tempo: f64,
     ) -> Result<()> {
-        let stems_dir = stems_dir_for(&track.sidecar_path)
-            .ok_or_else(|| crate::error::EngineError::StemsUnavailable(track.sidecar_path.clone()))?;
+        let stems_dir = stems_dir_for(&track.sidecar_path).ok_or_else(|| {
+            crate::error::EngineError::StemsUnavailable(track.sidecar_path.clone())
+        })?;
 
         let drums =
             crate::ffmpeg::decoder::decode_to_mono_pcm_44100(&stems_dir.join("drums.mp3")).await?;
@@ -451,7 +452,11 @@ impl Deck {
             crate::ffmpeg::decoder::decode_to_mono_pcm_44100(&stems_dir.join("other.mp3")).await?;
 
         // Truncate all stems to the shortest so the read loop never drifts.
-        let len = drums.len().min(bass.len()).min(vocals.len()).min(other.len());
+        let len = drums
+            .len()
+            .min(bass.len())
+            .min(vocals.len())
+            .min(other.len());
         let mut drums = drums;
         drums.truncate(len);
         let mut bass = bass;
@@ -545,7 +550,9 @@ impl Deck {
                 let Some(source) = self.sources.front_mut() else {
                     break;
                 };
-                let chunk = source.pull(remaining_frames, &self.state.stem_faders).await?;
+                let chunk = source
+                    .pull(remaining_frames, &self.state.stem_faders)
+                    .await?;
                 if chunk.is_empty() {
                     self.sources.pop_front();
                     continue;

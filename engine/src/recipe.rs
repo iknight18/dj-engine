@@ -1004,9 +1004,9 @@ fn bar_with_min_density(density: &[f64], lo: usize, hi: usize) -> Option<usize> 
         return None;
     }
     let mut best = (lo, density[lo]);
-    for i in (lo + 1)..hi {
-        if density[i] < best.1 {
-            best = (i, density[i]);
+    for (i, v) in density.iter().enumerate().take(hi).skip(lo + 1) {
+        if *v < best.1 {
+            best = (i, *v);
         }
     }
     Some(best.0)
@@ -1015,18 +1015,13 @@ fn bar_with_min_density(density: &[f64], lo: usize, hi: usize) -> Option<usize> 
 /// First index in `density[lo..hi]` where `density[i] >= threshold`. Returns
 /// the last index of the slice when no bar passes. Returns `None` for empty
 /// input or `lo >= hi`.
-fn first_bar_at_or_above(
-    density: &[f64],
-    lo: usize,
-    hi: usize,
-    threshold: f64,
-) -> Option<usize> {
+fn first_bar_at_or_above(density: &[f64], lo: usize, hi: usize, threshold: f64) -> Option<usize> {
     let hi = hi.min(density.len());
     if lo >= hi {
         return None;
     }
-    for i in lo..hi {
-        if density[i] >= threshold {
+    for (i, v) in density.iter().enumerate().take(hi).skip(lo) {
+        if *v >= threshold {
             return Some(i);
         }
     }
@@ -1602,8 +1597,7 @@ impl PairScoreInputs {
             .map(|b| b.bass)
             .unwrap_or(0.5);
         let phrase_aligned = outgoing.sidecar.phrase_aligned() && incoming.sidecar.phrase_aligned();
-        let stems_available =
-            outgoing.sidecar.stems.is_some() && incoming.sidecar.stems.is_some();
+        let stems_available = outgoing.sidecar.stems.is_some() && incoming.sidecar.stems.is_some();
         Self {
             length_bars: plan.length_bars,
             use_eq_swap: plan.use_eq_swap,
@@ -1742,8 +1736,7 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             // The planner only promotes to length_bars >= 16 when bpm_delta
             // <= 0.02, so requiring length_bars >= 16 here proxies the
             // ratio ~= 1.0 gate from the spec.
-            let identical_bpm_band =
-                inputs.energy_delta.abs() < 0.20 && inputs.stems_available;
+            let identical_bpm_band = inputs.energy_delta.abs() < 0.20 && inputs.stems_available;
             let strong = identical_bpm_band && inputs.phrase_aligned && inputs.length_bars >= 16;
             if strong {
                 0.85
@@ -1767,9 +1760,8 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             }
         }
         RecipeChoice::BreakdownIntoDrop => {
-            let strong = inputs.stems_available
-                && inputs.phrase_aligned
-                && inputs.energy_delta > 0.10;
+            let strong =
+                inputs.stems_available && inputs.phrase_aligned && inputs.energy_delta > 0.10;
             if strong {
                 0.80
             } else if inputs.stems_available {
