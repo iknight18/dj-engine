@@ -21,7 +21,7 @@ pub struct TransitionContext<'a> {
 /// effects it actually uses (`EchoOut` configures echo, `LoopOut` configures
 /// the loop buffer). Existing recipes that don't use effects set both
 /// `outgoing_init` and `incoming_init` to `None`.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct DeckInitConfig {
     pub echo_delay_seconds: Option<f64>,
     pub echo_feedback: Option<f64>,
