@@ -20,6 +20,7 @@ pub mod phrase;
 pub mod recency;
 pub mod recipe;
 pub mod recipe_recency;
+pub mod recipe_script;
 pub mod scheduler;
 pub mod selector;
 pub mod sidecar;
