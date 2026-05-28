@@ -588,3 +588,102 @@ pub fn pick_recipe(plan: &TransitionPlan) -> RecipeChoice {
         RecipeChoice::EqualPower
     }
 }
+
+/// Pre-computed inputs the recipe scorer needs. Factoring out the sidecar
+/// dereference makes the scorer trivially unit-testable.
+#[derive(Clone, Debug)]
+pub struct PairScoreInputs {
+    pub length_bars: usize,
+    pub use_eq_swap: bool,
+    /// `incoming.energy_mean - outgoing.energy_mean` (positive = ramp up).
+    pub energy_delta: f64,
+    /// `band_energy_means.bass` from each sidecar; defaults to 0.5 when absent.
+    pub outgoing_bass: f64,
+    pub incoming_bass: f64,
+    /// True iff BOTH tracks are marked `is_phrase_aligned`.
+    pub phrase_aligned: bool,
+}
+
+impl PairScoreInputs {
+    pub fn from_pair(
+        plan: &TransitionPlan,
+        outgoing: &LoadedTrack,
+        incoming: &LoadedTrack,
+    ) -> Self {
+        let outgoing_energy = outgoing.sidecar.energy_mean.unwrap_or(0.5);
+        let incoming_energy = incoming.sidecar.energy_mean.unwrap_or(0.5);
+        let outgoing_bass = outgoing
+            .sidecar
+            .band_energy_means
+            .as_ref()
+            .map(|b| b.bass)
+            .unwrap_or(0.5);
+        let incoming_bass = incoming
+            .sidecar
+            .band_energy_means
+            .as_ref()
+            .map(|b| b.bass)
+            .unwrap_or(0.5);
+        let phrase_aligned =
+            outgoing.sidecar.phrase_aligned() && incoming.sidecar.phrase_aligned();
+        Self {
+            length_bars: plan.length_bars,
+            use_eq_swap: plan.use_eq_swap,
+            energy_delta: incoming_energy - outgoing_energy,
+            outgoing_bass,
+            incoming_bass,
+            phrase_aligned,
+        }
+    }
+}
+
+/// Score a recipe's fit for the pair. Higher = better. Score range [0, 1].
+pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
+    match choice {
+        RecipeChoice::HardCut => {
+            if inputs.length_bars == 0 {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        RecipeChoice::EqualPower => 0.5,
+        RecipeChoice::BassSwap => {
+            let both_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
+            let any_heavy = inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5;
+            if inputs.phrase_aligned && both_heavy {
+                0.85
+            } else if inputs.phrase_aligned && any_heavy {
+                0.45
+            } else {
+                0.10
+            }
+        }
+        RecipeChoice::FilterFade => {
+            if inputs.energy_delta > 0.20 {
+                0.75
+            } else if inputs.energy_delta > 0.05 {
+                0.40
+            } else {
+                0.0
+            }
+        }
+        RecipeChoice::FilterKill => {
+            if inputs.energy_delta < -0.20 {
+                0.70
+            } else if inputs.energy_delta < -0.05 {
+                0.40
+            } else {
+                0.0
+            }
+        }
+        RecipeChoice::EchoOut => {
+            if inputs.energy_delta < -0.15 {
+                0.65
+            } else {
+                0.35
+            }
+        }
+        RecipeChoice::LoopOut => 0.30,
+    }
+}

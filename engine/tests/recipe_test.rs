@@ -506,3 +506,90 @@ fn filter_kill_emits_outgoing_filter_sweep_to_plus_1_over_60_percent() {
     // Incoming: Fader + Tempo Step. No filter automation on incoming.
     assert_eq!(r.incoming_automations.len(), 2);
 }
+
+// ---------------------------------------------------------------------------
+// score_recipe + PairScoreInputs tests (sub-project 5, task 2)
+// ---------------------------------------------------------------------------
+
+use dj_engine::recipe::{score_recipe, PairScoreInputs};
+
+fn inputs_default() -> PairScoreInputs {
+    PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: false,
+        energy_delta: 0.0,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+    }
+}
+
+#[test]
+fn score_hard_cut_only_when_length_zero() {
+    let mut i = inputs_default();
+    i.length_bars = 0;
+    assert_eq!(score_recipe(RecipeChoice::HardCut, &i), 1.0);
+    i.length_bars = 16;
+    assert_eq!(score_recipe(RecipeChoice::HardCut, &i), 0.0);
+}
+
+#[test]
+fn score_equal_power_is_baseline_half() {
+    let i = inputs_default();
+    assert!((score_recipe(RecipeChoice::EqualPower, &i) - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn score_bass_swap_high_when_both_heavy_and_phrase_aligned() {
+    let mut i = inputs_default();
+    i.outgoing_bass = 0.7;
+    i.incoming_bass = 0.7;
+    i.phrase_aligned = true;
+    assert!(score_recipe(RecipeChoice::BassSwap, &i) > 0.8);
+}
+
+#[test]
+fn score_bass_swap_low_when_not_phrase_aligned() {
+    let mut i = inputs_default();
+    i.outgoing_bass = 0.7;
+    i.incoming_bass = 0.7;
+    i.phrase_aligned = false;
+    assert!(score_recipe(RecipeChoice::BassSwap, &i) < 0.2);
+}
+
+#[test]
+fn score_filter_fade_rises_with_energy_boost() {
+    let mut i = inputs_default();
+    i.energy_delta = 0.3;
+    assert!(score_recipe(RecipeChoice::FilterFade, &i) > 0.7);
+    i.energy_delta = 0.10;
+    assert!(score_recipe(RecipeChoice::FilterFade, &i) > 0.35);
+    assert!(score_recipe(RecipeChoice::FilterFade, &i) < 0.45);
+    i.energy_delta = -0.3;
+    assert!(score_recipe(RecipeChoice::FilterFade, &i) < 0.01);
+}
+
+#[test]
+fn score_filter_kill_rises_with_energy_drop() {
+    let mut i = inputs_default();
+    i.energy_delta = -0.3;
+    assert!(score_recipe(RecipeChoice::FilterKill, &i) > 0.6);
+    i.energy_delta = 0.3;
+    assert!(score_recipe(RecipeChoice::FilterKill, &i) < 0.01);
+}
+
+#[test]
+fn score_echo_out_rises_on_wind_down() {
+    let mut i = inputs_default();
+    i.energy_delta = -0.5;
+    assert!(score_recipe(RecipeChoice::EchoOut, &i) > 0.6);
+    i.energy_delta = 0.0;
+    let baseline = score_recipe(RecipeChoice::EchoOut, &i);
+    assert!(baseline > 0.3 && baseline < 0.4);
+}
+
+#[test]
+fn score_loop_out_is_low_baseline() {
+    let i = inputs_default();
+    assert!(score_recipe(RecipeChoice::LoopOut, &i) < 0.35);
+}
