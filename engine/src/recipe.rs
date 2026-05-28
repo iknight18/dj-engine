@@ -615,6 +615,85 @@ impl Recipe for EchoThrow {
     }
 }
 
+/// `HighsFirst`: incoming intro with bass and mids killed at start.
+/// - Incoming fader rises fast (equal-power over bars [0, L/8]).
+/// - Mids fade in over bars [L/4, L/2].
+/// - Synchronized bass swap on bar 3L/4 (outgoing low → -40dB, incoming low → 0dB).
+/// Used when incoming is markedly higher energy than outgoing.
+pub struct HighsFirst;
+
+impl Recipe for HighsFirst {
+    fn name(&self) -> &'static str {
+        "highs_first"
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = ctx.plan.length_bars as f64;
+        let swap_at = 3.0 * l / 4.0;
+
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l / 8.0),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Low,
+                    value_db: -40.0,
+                    at: bar(0.0),
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Mid,
+                    value_db: -40.0,
+                    at: bar(0.0),
+                },
+                Phase::EqRamp {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Mid,
+                    from_db: -40.0,
+                    to_db: 0.0,
+                    span: bars(l / 4.0, l / 2.0),
+                    curve: Curve::Linear,
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Outgoing,
+                    band: EqBand::Low,
+                    value_db: -40.0,
+                    at: bar(swap_at),
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Low,
+                    value_db: 0.0,
+                    at: bar(swap_at),
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,

@@ -151,3 +151,42 @@ fn echo_throw_16_bar_emits_throw_at_bar_14() {
             if (at.bars - 14.0).abs() < 1e-9 && (*hold_bars - 1.0).abs() < 1e-9));
     assert!(has_throw, "echo throw at bar 14 holding 1 bar");
 }
+
+#[test]
+fn highs_first_16_bar_bass_swap_at_bar_12() {
+    use dj_engine::recipe::HighsFirst;
+    let outgoing = track();
+    let incoming = track();
+    let p = plan(16);
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &p,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let script = HighsFirst.build_script(&ctx);
+    assert_eq!(script.length_bars, 16);
+
+    let has_fast_fader = script.phases.iter().any(|p| matches!(p,
+        Phase::Fader { deck: DeckRole::Incoming, from, to, span, curve: Curve::EqualPowerIn }
+            if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
+               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 2.0).abs() < 1e-9));
+    assert!(has_fast_fader, "incoming fader fast-rise on [0, 2]");
+
+    let has_bass_swap_out = script.phases.iter().any(|p| matches!(p,
+        Phase::EqStep { deck: DeckRole::Outgoing, band: EqBand::Low, value_db, at }
+            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 12.0).abs() < 1e-9));
+    let has_bass_swap_in = script.phases.iter().any(|p| matches!(p,
+        Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::Low, value_db, at }
+            if (*value_db - 0.0).abs() < 1e-9 && (at.bars - 12.0).abs() < 1e-9));
+    assert!(has_bass_swap_out && has_bass_swap_in, "bass swap at bar 12");
+
+    let has_mids_ramp = script.phases.iter().any(|p| matches!(p,
+        Phase::EqRamp { deck: DeckRole::Incoming, band: EqBand::Mid, from_db, to_db, span, .. }
+            if (*from_db - (-40.0)).abs() < 1e-9 && (*to_db - 0.0).abs() < 1e-9
+               && (span.start.bars - 4.0).abs() < 1e-9 && (span.end.bars - 8.0).abs() < 1e-9));
+    assert!(has_mids_ramp, "mids ramp on [4, 8]");
+}
