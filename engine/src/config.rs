@@ -48,6 +48,8 @@ pub enum ForceRecipe {
     BassSwap,
     FilterFade,
     FilterKill,
+    EchoOut,
+    LoopOut,
 }
 
 impl ForceRecipe {
@@ -58,6 +60,8 @@ impl ForceRecipe {
             ForceRecipe::BassSwap => crate::recipe::RecipeChoice::BassSwap,
             ForceRecipe::FilterFade => crate::recipe::RecipeChoice::FilterFade,
             ForceRecipe::FilterKill => crate::recipe::RecipeChoice::FilterKill,
+            ForceRecipe::EchoOut => crate::recipe::RecipeChoice::EchoOut,
+            ForceRecipe::LoopOut => crate::recipe::RecipeChoice::LoopOut,
         }
     }
 }

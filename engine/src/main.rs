@@ -179,6 +179,8 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap_crossfade",
             dj_engine::recipe::RecipeChoice::FilterFade => "filter_fade",
             dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
+            dj_engine::recipe::RecipeChoice::EchoOut => "echo_out",
+            dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
         };
         let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
@@ -259,6 +261,30 @@ async fn main() -> anyhow::Result<()> {
                     &next_track,
                     &plan,
                     &dj_engine::recipe::FilterKill,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::EchoOut => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::EchoOut,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::LoopOut => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::LoopOut,
                 )
                 .await?
             }
