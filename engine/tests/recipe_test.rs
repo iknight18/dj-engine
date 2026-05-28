@@ -1068,6 +1068,77 @@ fn score_double_drop_jackpot() {
 }
 
 #[test]
+fn score_vocal_overlay_strong_when_stems_and_aligned() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: true,
+    };
+    assert!((score_recipe(RecipeChoice::VocalOverlay, &inputs) - 0.85).abs() < 1e-9);
+}
+
+#[test]
+fn score_vocal_overlay_weak_without_stems() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: false,
+    };
+    assert!((score_recipe(RecipeChoice::VocalOverlay, &inputs) - 0.05).abs() < 1e-9);
+}
+
+#[test]
+fn score_bass_swap_stem_aware_beats_basic_bass_swap_when_stems() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.0,
+        outgoing_bass: 0.7,
+        incoming_bass: 0.7,
+        phrase_aligned: true,
+        stems_available: true,
+    };
+    let stem_aware = score_recipe(RecipeChoice::BassSwapStemAware, &inputs);
+    let basic = score_recipe(RecipeChoice::BassSwap, &inputs);
+    assert!(
+        stem_aware > basic,
+        "stem_aware={stem_aware} basic={basic}"
+    );
+}
+
+#[test]
+fn score_breakdown_into_drop_needs_stems_and_ramp_up() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let strong = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: false,
+        energy_delta: 0.20,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: true,
+    };
+    assert!((score_recipe(RecipeChoice::BreakdownIntoDrop, &strong) - 0.80).abs() < 1e-9);
+
+    let no_stems = PairScoreInputs {
+        stems_available: false,
+        ..strong
+    };
+    assert!((score_recipe(RecipeChoice::BreakdownIntoDrop, &no_stems) - 0.05).abs() < 1e-9);
+}
+
+#[test]
 fn score_double_drop_misses_when_energy_too_far() {
     use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
     let inputs = PairScoreInputs {
