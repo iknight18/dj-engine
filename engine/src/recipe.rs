@@ -419,6 +419,155 @@ impl Recipe for FilterKill {
     }
 }
 
+/// `EchoOut`: outgoing fades out under an echo wash. While the equal-power
+/// crossfade does its thing, the outgoing deck's echo wet-mix ramps from 0 to
+/// 1 over the first half of the window, leaving the echo tail audible as the
+/// dry signal closes. Echo is configured for a one-beat delay with moderate
+/// feedback (0.5).
+pub struct EchoOut;
+
+impl Recipe for EchoOut {
+    fn name(&self) -> &'static str {
+        "echo_out"
+    }
+
+    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let beat_seconds = bar_seconds / 4.0;
+        let sr = ctx.sample_rate as f64;
+        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
+        let t0 = ctx.master_clock_frames;
+        let t1 = t0 + length_frames;
+
+        let outgoing_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 1.0,
+            to: 0.0,
+            curve: Curve::EqualPowerOut,
+        };
+        let incoming_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 0.0,
+            to: 1.0,
+            curve: Curve::EqualPowerIn,
+        };
+        let incoming_tempo_step = Automation {
+            target: AutomationTarget::Tempo,
+            t_start_frames: t0,
+            t_end_frames: t0 + 1,
+            from: ratio,
+            to: ratio,
+            curve: Curve::Step,
+        };
+        let outgoing_echo_ramp = Automation {
+            target: AutomationTarget::EchoMix,
+            t_start_frames: t0,
+            t_end_frames: t0 + length_frames / 2,
+            from: 0.0,
+            to: 1.0,
+            curve: Curve::Linear,
+        };
+
+        RecipeOutput {
+            outgoing_automations: vec![outgoing_fader, outgoing_echo_ramp],
+            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+            outgoing_init: Some(DeckInitConfig {
+                echo_delay_seconds: Some(beat_seconds),
+                echo_feedback: Some(0.5),
+                loop_bars: None,
+                loop_bar_seconds: None,
+            }),
+            incoming_init: None,
+            total_duration_frames: length_frames,
+        }
+    }
+}
+
+/// `LoopOut`: outgoing locks its last few bars into a loop and rides that loop
+/// to the end while the incoming track equal-power fades in over the top. A
+/// LoopGate Step pins the loop at t0; another Step releases it at t1 so the
+/// deck unloads cleanly on the post-transition swap. Loop length is 4 bars at
+/// the outgoing track's tempo.
+pub struct LoopOut;
+
+impl Recipe for LoopOut {
+    fn name(&self) -> &'static str {
+        "loop_out"
+    }
+
+    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let sr = ctx.sample_rate as f64;
+        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
+        let t0 = ctx.master_clock_frames;
+        let t1 = t0 + length_frames;
+
+        let outgoing_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 1.0,
+            to: 0.0,
+            curve: Curve::EqualPowerOut,
+        };
+        let incoming_fader = Automation {
+            target: AutomationTarget::Fader,
+            t_start_frames: t0,
+            t_end_frames: t1,
+            from: 0.0,
+            to: 1.0,
+            curve: Curve::EqualPowerIn,
+        };
+        let incoming_tempo_step = Automation {
+            target: AutomationTarget::Tempo,
+            t_start_frames: t0,
+            t_end_frames: t0 + 1,
+            from: ratio,
+            to: ratio,
+            curve: Curve::Step,
+        };
+        let outgoing_loop_on = Automation {
+            target: AutomationTarget::LoopGate,
+            t_start_frames: t0,
+            t_end_frames: t0 + 1,
+            from: 1.0,
+            to: 1.0,
+            curve: Curve::Step,
+        };
+        let outgoing_loop_off = Automation {
+            target: AutomationTarget::LoopGate,
+            t_start_frames: t1,
+            t_end_frames: t1 + 1,
+            from: 0.0,
+            to: 0.0,
+            curve: Curve::Step,
+        };
+
+        RecipeOutput {
+            outgoing_automations: vec![outgoing_fader, outgoing_loop_on, outgoing_loop_off],
+            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+            outgoing_init: Some(DeckInitConfig {
+                echo_delay_seconds: None,
+                echo_feedback: None,
+                loop_bars: Some(4),
+                loop_bar_seconds: Some(bar_seconds),
+            }),
+            incoming_init: None,
+            total_duration_frames: length_frames,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
@@ -426,6 +575,8 @@ pub enum RecipeChoice {
     BassSwap,
     FilterFade,
     FilterKill,
+    EchoOut,
+    LoopOut,
 }
 
 pub fn pick_recipe(plan: &TransitionPlan) -> RecipeChoice {

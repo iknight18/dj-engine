@@ -407,6 +407,79 @@ fn filter_fade_emits_fader_pair_plus_incoming_filter_sweep() {
     assert_eq!(filter_sweep.to, 0.0);
 }
 
+use dj_engine::recipe::{EchoOut, LoopOut};
+
+#[test]
+fn echo_out_emits_fader_pair_plus_outgoing_echo_ramp_and_init() {
+    let outgoing = track(120.0);
+    let incoming = track(120.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+    };
+    let ctx = ctx_for(&outgoing, &incoming, &plan);
+    let r = EchoOut.build(&ctx);
+
+    // Outgoing: Fader + EchoMix ramp.
+    assert_eq!(r.outgoing_automations.len(), 2);
+    assert!(r
+        .outgoing_automations
+        .iter()
+        .any(|a| a.target == AutomationTarget::Fader && a.curve == Curve::EqualPowerOut));
+    let echo_ramp = r
+        .outgoing_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::EchoMix)
+        .expect("outgoing echo ramp");
+    assert_eq!(echo_ramp.from, 0.0);
+    assert_eq!(echo_ramp.to, 1.0);
+
+    // Incoming: Fader + Tempo Step.
+    assert_eq!(r.incoming_automations.len(), 2);
+
+    // Init: outgoing has echo configured; incoming has no init.
+    let init = r
+        .outgoing_init
+        .as_ref()
+        .expect("outgoing_init for EchoOut");
+    assert!(init.echo_delay_seconds.is_some());
+    assert!((init.echo_feedback.unwrap_or(0.0) - 0.5).abs() < 1e-9);
+    assert!(r.incoming_init.is_none());
+}
+
+#[test]
+fn loop_out_emits_fader_pair_plus_outgoing_loop_gate_and_init() {
+    let outgoing = track(120.0);
+    let incoming = track(120.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+    };
+    let ctx = ctx_for(&outgoing, &incoming, &plan);
+    let r = LoopOut.build(&ctx);
+
+    // Outgoing: Fader + LoopGate on + LoopGate off.
+    assert_eq!(r.outgoing_automations.len(), 3);
+    let loop_ons: Vec<_> = r
+        .outgoing_automations
+        .iter()
+        .filter(|a| a.target == AutomationTarget::LoopGate)
+        .collect();
+    assert_eq!(loop_ons.len(), 2);
+
+    // Init: outgoing has loop configured.
+    let init = r
+        .outgoing_init
+        .as_ref()
+        .expect("outgoing_init for LoopOut");
+    assert_eq!(init.loop_bars, Some(4));
+    assert!(init.loop_bar_seconds.is_some());
+}
+
 #[test]
 fn filter_kill_emits_outgoing_filter_sweep_to_plus_1_over_60_percent() {
     let outgoing = track(120.0);
