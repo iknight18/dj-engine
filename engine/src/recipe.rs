@@ -45,6 +45,74 @@ pub trait Recipe {
     }
 }
 
+/// Build a script using the given recipe, inject any automatic post-processing
+/// phases (currently: pitch-journey-back), then compile to a `RecipeOutput`.
+pub fn build_and_compile(recipe: &dyn Recipe, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    let mut script = recipe.build_script(ctx);
+    inject_pitch_journey(&mut script, ctx);
+    crate::recipe_script::compile(&script, ctx)
+}
+
+/// Inject a pitch-journey-back `TempoRamp` into `script` when the pair has a
+/// modest BPM shift (0.005 ≤ |ratio − 1.0| < 0.05) and `skip_tempo_align` is
+/// false. The ramp runs from `ratio` back to 1.0 over 32 bars after the
+/// transition window, so the incoming deck gradually returns to its natural BPM.
+///
+/// Calling this function multiple times on the same script is idempotent: if a
+/// `TempoRamp` for `DeckRole::Incoming` already exists, the function returns
+/// immediately without adding another.
+pub fn inject_pitch_journey(
+    script: &mut crate::recipe_script::TransitionScript,
+    ctx: &TransitionContext<'_>,
+) {
+    use crate::automation::Curve;
+    use crate::recipe_script::{bars, DeckRole, Phase};
+
+    if ctx.plan.skip_tempo_align {
+        return;
+    }
+
+    // Skip if a journey ramp already exists (idempotency).
+    let already_injected = script.phases.iter().any(|p| {
+        matches!(
+            p,
+            Phase::TempoRamp {
+                deck: DeckRole::Incoming,
+                ..
+            }
+        )
+    });
+    if already_injected {
+        return;
+    }
+
+    // Find the TempoAlign on Incoming; its `ratio` is what we journey back from.
+    let ratio = script.phases.iter().find_map(|p| match p {
+        Phase::TempoAlign {
+            deck: DeckRole::Incoming,
+            ratio,
+        } => Some(*ratio),
+        _ => None,
+    });
+    let Some(ratio) = ratio else {
+        return;
+    };
+
+    let delta = (ratio - 1.0).abs();
+    if !(0.005..0.05).contains(&delta) {
+        return;
+    }
+
+    let l = script.length_bars as f64;
+    script.phases.push(Phase::TempoRamp {
+        deck: DeckRole::Incoming,
+        from: ratio,
+        to: 1.0,
+        span: bars(l, l + 32.0),
+        curve: Curve::Linear,
+    });
+}
+
 use crate::automation::Curve;
 use crate::recipe_script::{bar, bars, DeckRole, EqBand, Phase, TransitionScript};
 

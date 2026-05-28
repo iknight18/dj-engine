@@ -7,6 +7,13 @@ use dj_engine::sidecar::Sidecar;
 use dj_engine::transition::TransitionPlan;
 use std::path::PathBuf;
 
+fn track_with_bpm(bpm: f64) -> LoadedTrack {
+    LoadedTrack {
+        sidecar_path: PathBuf::new(),
+        sidecar: sidecar_with(bpm, 280.0),
+    }
+}
+
 const SR: u32 = 44100;
 
 fn sidecar_with(bpm: f64, cue_out: f64) -> Sidecar {
@@ -90,10 +97,12 @@ fn equal_power_same_bpm_emits_one_out_two_in_no_ramp() {
 }
 
 #[test]
-fn equal_power_diff_bpm_no_ramp_only_step() {
-    // Pitch-journey ramp was removed in favor of leaving incoming at the cued
-    // (BPM-matched) tempo for the rest of its playback. Confirm no Tempo Linear
-    // automation is emitted, only the Tempo Step at t0 confirming the cue tempo.
+fn equal_power_diff_bpm_has_journey_ramp_only_when_in_band() {
+    // 120→124 BPM: ratio ≈ 0.9677, delta ≈ 0.0323 — within the [0.005, 0.05)
+    // journey band. build_and_compile should inject exactly one Tempo Linear
+    // automation (the pitch-journey-back ramp) in addition to the Tempo Step.
+    use dj_engine::recipe::build_and_compile;
+
     let outgoing = track(120.0);
     let incoming = track(124.0);
     let plan = TransitionPlan {
@@ -112,22 +121,25 @@ fn equal_power_diff_bpm_no_ramp_only_step() {
         incoming_deck: DeckId::B,
         sample_rate: SR,
     };
-    let r = EqualPowerCrossfade.build(&ctx);
+    let r = build_and_compile(&EqualPowerCrossfade, &ctx);
     assert_eq!(r.outgoing_automations.len(), 1);
-    assert_eq!(r.incoming_automations.len(), 2);
-    assert!(!r
-        .incoming_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear));
+    // Incoming: Fader-in + Tempo Step + Tempo Linear (journey ramp) = 3 automations.
+    assert_eq!(r.incoming_automations.len(), 3);
     let expected_ratio = 120.0_f64 / 124.0_f64;
     let tempo_step = r
         .incoming_automations
         .iter()
-        .find(|a| a.target == AutomationTarget::Tempo)
+        .find(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Step)
         .expect("expected Tempo Step");
-    assert_eq!(tempo_step.curve, Curve::Step);
     assert!((tempo_step.from - expected_ratio).abs() < 1e-9);
     assert!((tempo_step.to - expected_ratio).abs() < 1e-9);
+    let journey_ramp = r
+        .incoming_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
+        .expect("expected Tempo Linear journey ramp");
+    assert!((journey_ramp.from - expected_ratio).abs() < 1e-9);
+    assert!((journey_ramp.to - 1.0).abs() < 1e-9);
 }
 
 #[test]
@@ -798,4 +810,174 @@ fn score_highs_first_no_ramp_low_score() {
         phrase_aligned: true,
     };
     assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.10).abs() < 1e-9);
+}
+
+// ---------------------------------------------------------------------------
+// inject_pitch_journey + build_and_compile tests (pitch-journey-back feature)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
+    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
+    use dj_engine::automation::{AutomationTarget, Curve};
+
+    // 120 BPM outgoing, 126 BPM incoming → ratio ≈ 0.9524 — in the journey band.
+    let outgoing = track_with_bpm(120.0);
+    let incoming = track_with_bpm(126.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &plan,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let out = build_and_compile(&EqualPowerCrossfade, &ctx);
+
+    let tempo_ramps: Vec<_> = out.incoming_automations
+        .iter()
+        .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
+        .collect();
+    assert_eq!(tempo_ramps.len(), 1, "expected exactly one Tempo Linear automation");
+    let ramp = tempo_ramps[0];
+    assert!((ramp.from - (120.0 / 126.0)).abs() < 1e-6);
+    assert!((ramp.to - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn build_and_compile_does_not_inject_for_identical_bpm() {
+    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
+    use dj_engine::automation::{AutomationTarget, Curve};
+
+    let outgoing = track_with_bpm(120.0);
+    let incoming = track_with_bpm(120.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &plan,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let out = build_and_compile(&EqualPowerCrossfade, &ctx);
+
+    let tempo_ramps: Vec<_> = out.incoming_automations
+        .iter()
+        .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
+        .collect();
+    assert_eq!(tempo_ramps.len(), 0, "should not inject when ratio == 1.0");
+}
+
+#[test]
+fn build_and_compile_does_not_inject_for_large_ratio() {
+    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
+    use dj_engine::automation::{AutomationTarget, Curve};
+
+    // 120 BPM → 152 BPM = ratio 0.789 — well outside the journey band.
+    let outgoing = track_with_bpm(120.0);
+    let incoming = track_with_bpm(152.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &plan,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let out = build_and_compile(&EqualPowerCrossfade, &ctx);
+
+    let tempo_ramps: Vec<_> = out.incoming_automations
+        .iter()
+        .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
+        .collect();
+    assert_eq!(tempo_ramps.len(), 0, "should not inject when ratio is too far from 1.0");
+}
+
+#[test]
+fn build_and_compile_does_not_inject_when_skip_tempo_align() {
+    use dj_engine::recipe::{build_and_compile};
+    use dj_engine::automation::{AutomationTarget, Curve};
+
+    let outgoing = track_with_bpm(120.0);
+    let incoming = track_with_bpm(125.0); // modest ratio in normal circumstances
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 0,
+        use_eq_swap: false,
+        skip_tempo_align: true, // the planner decided no-sync
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &plan,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let out = build_and_compile(&dj_engine::recipe::HardCut, &ctx);
+
+    let tempo_ramps: Vec<_> = out.incoming_automations
+        .iter()
+        .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
+        .collect();
+    assert_eq!(tempo_ramps.len(), 0, "skip_tempo_align must suppress the journey");
+}
+
+#[test]
+fn inject_pitch_journey_is_idempotent() {
+    use dj_engine::recipe::{inject_pitch_journey, EqualPowerCrossfade, Recipe};
+    use dj_engine::recipe_script::{DeckRole, Phase};
+
+    let outgoing = track_with_bpm(120.0);
+    let incoming = track_with_bpm(126.0);
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &plan,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let mut script = EqualPowerCrossfade.build_script(&ctx);
+    inject_pitch_journey(&mut script, &ctx);
+    inject_pitch_journey(&mut script, &ctx); // second call should be a no-op
+
+    let ramps: Vec<_> = script.phases.iter()
+        .filter(|p| matches!(p, Phase::TempoRamp { deck: DeckRole::Incoming, .. }))
+        .collect();
+    assert_eq!(ramps.len(), 1, "second injection should not duplicate the ramp");
 }
