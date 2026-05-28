@@ -78,25 +78,33 @@ fn three_band_swap_16_bar_emits_expected_phase_shape() {
     assert!(script.incoming_init.is_none());
     assert_eq!(script.phases.len(), 10, "phase count");
 
-    let has_high_init = script.phases.iter().any(|p| matches!(p,
+    let has_high_init = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::High, value_db, at }
-            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 0.0).abs() < 1e-9));
+            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 0.0).abs() < 1e-9)
+    });
     assert!(has_high_init, "highs init step at bar 0");
 
-    let has_mids_outgoing = script.phases.iter().any(|p| matches!(p,
+    let has_mids_outgoing = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqRamp { deck: DeckRole::Outgoing, band: EqBand::Mid, from_db, to_db, span, .. }
             if (*from_db - 0.0).abs() < 1e-9 && (*to_db - (-40.0)).abs() < 1e-9
-               && (span.start.bars - 6.0).abs() < 1e-9 && (span.end.bars - 10.0).abs() < 1e-9));
+               && (span.start.bars - 6.0).abs() < 1e-9 && (span.end.bars - 10.0).abs() < 1e-9)
+    });
     assert!(has_mids_outgoing, "outgoing mids ramp on [6, 10]");
 
-    let has_bass_swap_outgoing = script.phases.iter().any(|p| matches!(p,
+    let has_bass_swap_outgoing = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqStep { deck: DeckRole::Outgoing, band: EqBand::Low, value_db, at }
-            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 14.0).abs() < 1e-9));
+            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 14.0).abs() < 1e-9)
+    });
     assert!(has_bass_swap_outgoing, "outgoing bass-kill at bar 14");
 
-    let has_bass_swap_incoming = script.phases.iter().any(|p| matches!(p,
+    let has_bass_swap_incoming = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::Low, value_db, at }
-            if (*value_db - 0.0).abs() < 1e-9 && (at.bars - 14.0).abs() < 1e-9));
+            if (*value_db - 0.0).abs() < 1e-9 && (at.bars - 14.0).abs() < 1e-9)
+    });
     assert!(has_bass_swap_incoming, "incoming bass-release at bar 14");
 
     let _ = Curve::EqualPowerIn;
@@ -118,9 +126,11 @@ fn three_band_swap_8_bar_swap_lands_at_bar_7() {
     };
     let script = ThreeBandSwap.build_script(&ctx);
 
-    let has_bass_swap = script.phases.iter().any(|p| matches!(p,
+    let has_bass_swap = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqStep { deck: DeckRole::Outgoing, band: EqBand::Low, value_db, at }
-            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 7.0).abs() < 1e-9));
+            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 7.0).abs() < 1e-9)
+    });
     assert!(has_bass_swap, "outgoing bass-kill at bar 7 for L=8");
 }
 
@@ -146,9 +156,11 @@ fn echo_throw_16_bar_emits_throw_at_bar_14() {
     assert!((init.echo_delay_seconds.unwrap() - 0.5).abs() < 1e-9);
     assert!((init.echo_feedback.unwrap() - 0.75).abs() < 1e-9);
 
-    let has_throw = script.phases.iter().any(|p| matches!(p,
+    let has_throw = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EchoThrow { deck: DeckRole::Outgoing, at, hold_bars }
-            if (at.bars - 14.0).abs() < 1e-9 && (*hold_bars - 1.0).abs() < 1e-9));
+            if (at.bars - 14.0).abs() < 1e-9 && (*hold_bars - 1.0).abs() < 1e-9)
+    });
     assert!(has_throw, "echo throw at bar 14 holding 1 bar");
 }
 
@@ -170,23 +182,31 @@ fn highs_first_16_bar_bass_swap_at_bar_12() {
     let script = HighsFirst.build_script(&ctx);
     assert_eq!(script.length_bars, 16);
 
-    let has_fast_fader = script.phases.iter().any(|p| matches!(p,
+    let has_fast_fader = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::Fader { deck: DeckRole::Incoming, from, to, span, curve: Curve::EqualPowerIn }
             if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
-               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 2.0).abs() < 1e-9));
+               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 2.0).abs() < 1e-9)
+    });
     assert!(has_fast_fader, "incoming fader fast-rise on [0, 2]");
 
-    let has_bass_swap_out = script.phases.iter().any(|p| matches!(p,
+    let has_bass_swap_out = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqStep { deck: DeckRole::Outgoing, band: EqBand::Low, value_db, at }
-            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 12.0).abs() < 1e-9));
-    let has_bass_swap_in = script.phases.iter().any(|p| matches!(p,
+            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 12.0).abs() < 1e-9)
+    });
+    let has_bass_swap_in = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::Low, value_db, at }
-            if (*value_db - 0.0).abs() < 1e-9 && (at.bars - 12.0).abs() < 1e-9));
+            if (*value_db - 0.0).abs() < 1e-9 && (at.bars - 12.0).abs() < 1e-9)
+    });
     assert!(has_bass_swap_out && has_bass_swap_in, "bass swap at bar 12");
 
-    let has_mids_ramp = script.phases.iter().any(|p| matches!(p,
+    let has_mids_ramp = script.phases.iter().any(|p| {
+        matches!(p,
         Phase::EqRamp { deck: DeckRole::Incoming, band: EqBand::Mid, from_db, to_db, span, .. }
             if (*from_db - (-40.0)).abs() < 1e-9 && (*to_db - 0.0).abs() < 1e-9
-               && (span.start.bars - 4.0).abs() < 1e-9 && (span.end.bars - 8.0).abs() < 1e-9));
+               && (span.start.bars - 4.0).abs() < 1e-9 && (span.end.bars - 8.0).abs() < 1e-9)
+    });
     assert!(has_mids_ramp, "mids ramp on [4, 8]");
 }

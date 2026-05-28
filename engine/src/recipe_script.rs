@@ -109,10 +109,7 @@ pub enum Phase {
         off_at: BarPos,
     },
     /// Tempo Step at bar 0. Emitted once per script by `Incoming`.
-    TempoAlign {
-        deck: DeckRole,
-        ratio: f64,
-    },
+    TempoAlign { deck: DeckRole, ratio: f64 },
 }
 
 use crate::automation::{Automation, AutomationTarget};
@@ -191,7 +188,11 @@ pub fn compile(script: &TransitionScript, ctx: &TransitionContext<'_>) -> Recipe
                     t_start + 1
                 } else {
                     let raw = bar_to_frame(span.end);
-                    if raw <= t_start { t_start + 1 } else { raw }
+                    if raw <= t_start {
+                        t_start + 1
+                    } else {
+                        raw
+                    }
                 };
                 push!(
                     $deck,

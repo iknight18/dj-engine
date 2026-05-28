@@ -189,7 +189,10 @@ fn loop_gate_expands_to_two_step_automations() {
     };
     let out = compile(&script, &ctx);
     assert_eq!(out.outgoing_automations.len(), 2);
-    assert_eq!(out.outgoing_automations[0].target, AutomationTarget::LoopGate);
+    assert_eq!(
+        out.outgoing_automations[0].target,
+        AutomationTarget::LoopGate
+    );
     assert_eq!(out.outgoing_automations[0].curve, Curve::Step);
     assert_eq!(out.outgoing_automations[1].curve, Curve::Step);
     assert_eq!(out.outgoing_automations[1].t_start_frames, 16 * 88200);
@@ -386,7 +389,9 @@ fn init_configs_pass_through() {
         incoming_init: None,
     };
     let out = compile(&script, &ctx);
-    let out_init = out.outgoing_init.expect("outgoing_init should pass through");
+    let out_init = out
+        .outgoing_init
+        .expect("outgoing_init should pass through");
     assert_eq!(out_init.echo_delay_seconds, Some(0.5));
     assert_eq!(out_init.echo_feedback, Some(0.75));
     assert!(out.incoming_init.is_none());

@@ -45,7 +45,7 @@ pub trait Recipe {
     }
 }
 
-use crate::automation::{Curve};
+use crate::automation::Curve;
 use crate::recipe_script::{bar, bars, DeckRole, EqBand, Phase, TransitionScript};
 
 pub struct EqualPowerCrossfade;
@@ -467,6 +467,7 @@ impl Recipe for LoopOut {
 /// - Incoming highs ramp in over bars [0, L/8].
 /// - Mids cross in the middle quarter (bars [3L/8, 5L/8]).
 /// - Bass swaps on a single downbeat at bar 7L/8.
+///
 /// Equal-power fader across the whole window. For L=16 the bass swap
 /// lands on bar 14; for L=32 on bar 28; for L=8 on bar 7.
 pub struct ThreeBandSwap;
@@ -619,6 +620,7 @@ impl Recipe for EchoThrow {
 /// - Incoming fader rises fast (equal-power over bars [0, L/8]).
 /// - Mids fade in over bars [L/4, L/2].
 /// - Synchronized bass swap on bar 3L/4 (outgoing low → -40dB, incoming low → 0dB).
+///
 /// Used when incoming is markedly higher energy than outgoing.
 pub struct HighsFirst;
 
@@ -926,9 +928,8 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             }
         }
         RecipeChoice::HighsFirst => {
-            let big_ramp = inputs.energy_delta > 0.20
-                && inputs.phrase_aligned
-                && inputs.length_bars >= 16;
+            let big_ramp =
+                inputs.energy_delta > 0.20 && inputs.phrase_aligned && inputs.length_bars >= 16;
             let med_ramp = inputs.energy_delta > 0.10 && inputs.phrase_aligned;
             let any_ramp = inputs.energy_delta > 0.05;
             if big_ramp {
