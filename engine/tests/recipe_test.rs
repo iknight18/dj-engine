@@ -818,8 +818,8 @@ fn score_highs_first_no_ramp_low_score() {
 
 #[test]
 fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
-    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
     use dj_engine::automation::{AutomationTarget, Curve};
+    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
 
     // 120 BPM outgoing, 126 BPM incoming → ratio ≈ 0.9524 — in the journey band.
     let outgoing = track_with_bpm(120.0);
@@ -842,11 +842,16 @@ fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
-    let tempo_ramps: Vec<_> = out.incoming_automations
+    let tempo_ramps: Vec<_> = out
+        .incoming_automations
         .iter()
         .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
         .collect();
-    assert_eq!(tempo_ramps.len(), 1, "expected exactly one Tempo Linear automation");
+    assert_eq!(
+        tempo_ramps.len(),
+        1,
+        "expected exactly one Tempo Linear automation"
+    );
     let ramp = tempo_ramps[0];
     assert!((ramp.from - (120.0 / 126.0)).abs() < 1e-6);
     assert!((ramp.to - 1.0).abs() < 1e-9);
@@ -854,8 +859,8 @@ fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
 
 #[test]
 fn build_and_compile_does_not_inject_for_identical_bpm() {
-    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
     use dj_engine::automation::{AutomationTarget, Curve};
+    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
 
     let outgoing = track_with_bpm(120.0);
     let incoming = track_with_bpm(120.0);
@@ -877,7 +882,8 @@ fn build_and_compile_does_not_inject_for_identical_bpm() {
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
-    let tempo_ramps: Vec<_> = out.incoming_automations
+    let tempo_ramps: Vec<_> = out
+        .incoming_automations
         .iter()
         .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
         .collect();
@@ -886,8 +892,8 @@ fn build_and_compile_does_not_inject_for_identical_bpm() {
 
 #[test]
 fn build_and_compile_does_not_inject_for_large_ratio() {
-    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
     use dj_engine::automation::{AutomationTarget, Curve};
+    use dj_engine::recipe::{build_and_compile, EqualPowerCrossfade};
 
     // 120 BPM → 152 BPM = ratio 0.789 — well outside the journey band.
     let outgoing = track_with_bpm(120.0);
@@ -910,17 +916,22 @@ fn build_and_compile_does_not_inject_for_large_ratio() {
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
-    let tempo_ramps: Vec<_> = out.incoming_automations
+    let tempo_ramps: Vec<_> = out
+        .incoming_automations
         .iter()
         .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
         .collect();
-    assert_eq!(tempo_ramps.len(), 0, "should not inject when ratio is too far from 1.0");
+    assert_eq!(
+        tempo_ramps.len(),
+        0,
+        "should not inject when ratio is too far from 1.0"
+    );
 }
 
 #[test]
 fn build_and_compile_does_not_inject_when_skip_tempo_align() {
-    use dj_engine::recipe::{build_and_compile};
     use dj_engine::automation::{AutomationTarget, Curve};
+    use dj_engine::recipe::build_and_compile;
 
     let outgoing = track_with_bpm(120.0);
     let incoming = track_with_bpm(125.0); // modest ratio in normal circumstances
@@ -942,11 +953,16 @@ fn build_and_compile_does_not_inject_when_skip_tempo_align() {
     };
     let out = build_and_compile(&dj_engine::recipe::HardCut, &ctx);
 
-    let tempo_ramps: Vec<_> = out.incoming_automations
+    let tempo_ramps: Vec<_> = out
+        .incoming_automations
         .iter()
         .filter(|a| a.target == AutomationTarget::Tempo && a.curve == Curve::Linear)
         .collect();
-    assert_eq!(tempo_ramps.len(), 0, "skip_tempo_align must suppress the journey");
+    assert_eq!(
+        tempo_ramps.len(),
+        0,
+        "skip_tempo_align must suppress the journey"
+    );
 }
 
 #[test]
@@ -976,8 +992,22 @@ fn inject_pitch_journey_is_idempotent() {
     inject_pitch_journey(&mut script, &ctx);
     inject_pitch_journey(&mut script, &ctx); // second call should be a no-op
 
-    let ramps: Vec<_> = script.phases.iter()
-        .filter(|p| matches!(p, Phase::TempoRamp { deck: DeckRole::Incoming, .. }))
+    let ramps: Vec<_> = script
+        .phases
+        .iter()
+        .filter(|p| {
+            matches!(
+                p,
+                Phase::TempoRamp {
+                    deck: DeckRole::Incoming,
+                    ..
+                }
+            )
+        })
         .collect();
-    assert_eq!(ramps.len(), 1, "second injection should not duplicate the ramp");
+    assert_eq!(
+        ramps.len(),
+        1,
+        "second injection should not duplicate the ramp"
+    );
 }
