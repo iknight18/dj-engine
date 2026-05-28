@@ -305,6 +305,126 @@ fn breakdown_bridge_kills_outgoing_mids_and_bass() {
 }
 
 #[test]
+fn vocal_overlay_emits_stem_fader_phases() {
+    use dj_engine::deck::StemKind;
+    use dj_engine::recipe::VocalOverlay;
+    let outgoing = track();
+    let incoming = track();
+    let p = plan(16);
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &p,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let script = VocalOverlay.build_script(&ctx);
+    assert_eq!(script.length_bars, 16);
+
+    // Incoming vocals ramp [0, 4].
+    let has_vocal_intro = script.phases.iter().any(|ph| {
+        matches!(ph,
+        Phase::StemFader { deck: DeckRole::Incoming, stem: StemKind::Vocals, from, to, span, curve: Curve::Linear }
+            if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
+               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 4.0).abs() < 1e-9)
+    });
+    assert!(has_vocal_intro);
+
+    // Incoming drums ramp [12, 16].
+    let has_drums_intro = script.phases.iter().any(|ph| {
+        matches!(ph,
+        Phase::StemFader { deck: DeckRole::Incoming, stem: StemKind::Drums, from, to, span, curve: Curve::Linear }
+            if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
+               && (span.start.bars - 12.0).abs() < 1e-9 && (span.end.bars - 16.0).abs() < 1e-9)
+    });
+    assert!(has_drums_intro);
+}
+
+#[test]
+fn bass_swap_stem_aware_emits_bass_stem_phases() {
+    use dj_engine::deck::StemKind;
+    use dj_engine::recipe::BassSwapStemAware;
+    let outgoing = track();
+    let incoming = track();
+    let p = plan(16);
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &p,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let script = BassSwapStemAware.build_script(&ctx);
+    assert_eq!(script.length_bars, 16);
+
+    // Outgoing bass stem killed somewhere — at least one bass-targeted StemFader on outgoing.
+    let has_outgoing_bass_kill = script.phases.iter().any(|ph| {
+        matches!(
+            ph,
+            Phase::StemFader {
+                deck: DeckRole::Outgoing,
+                stem: StemKind::Bass,
+                ..
+            }
+        )
+    });
+    assert!(has_outgoing_bass_kill);
+
+    // Incoming bass stem released somewhere.
+    let has_incoming_bass_release = script.phases.iter().any(|ph| {
+        matches!(
+            ph,
+            Phase::StemFader {
+                deck: DeckRole::Incoming,
+                stem: StemKind::Bass,
+                ..
+            }
+        )
+    });
+    assert!(has_incoming_bass_release);
+}
+
+#[test]
+fn breakdown_into_drop_emits_drum_breakdown_and_drop() {
+    use dj_engine::deck::StemKind;
+    use dj_engine::recipe::BreakdownIntoDrop;
+    let outgoing = track();
+    let incoming = track();
+    let p = plan(8);
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &p,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let script = BreakdownIntoDrop.build_script(&ctx);
+    assert_eq!(script.length_bars, 8);
+
+    // Outgoing drum stem ramps 1.0 -> 0.0.
+    let has_drum_breakdown = script.phases.iter().any(|ph| {
+        matches!(ph,
+        Phase::StemFader { deck: DeckRole::Outgoing, stem: StemKind::Drums, from, to, .. }
+            if (*from - 1.0).abs() < 1e-9 && (*to - 0.0).abs() < 1e-9)
+    });
+    assert!(has_drum_breakdown);
+
+    // Incoming mixed fader hard-cuts 0 -> 1.
+    let has_drop = script.phases.iter().any(|ph| {
+        matches!(ph,
+        Phase::Fader { deck: DeckRole::Incoming, from, to, curve: Curve::Step, .. }
+            if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9)
+    });
+    assert!(has_drop);
+}
+
+#[test]
 fn double_drop_holds_silence_then_both_play() {
     use dj_engine::recipe::DoubleDrop;
     let outgoing = track();
