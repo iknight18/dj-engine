@@ -120,10 +120,14 @@ async fn main() -> anyhow::Result<()> {
             current_bpm = current.sidecar.bpm.unwrap_or(0.0),
             current_key = current.sidecar.key.as_deref().unwrap_or("?"),
             current_energy = current.sidecar.energy_mean.unwrap_or(0.0),
+            current_bass = current.sidecar.band_energy_means.as_ref().map(|b| b.bass).unwrap_or(0.0),
+            current_phrase_aligned = current.sidecar.phrase_aligned(),
             next = %short_name(&next_track.sidecar.source_path),
             next_bpm = next_track.sidecar.bpm.unwrap_or(0.0),
             next_key = next_track.sidecar.key.as_deref().unwrap_or("?"),
             next_energy = next_track.sidecar.energy_mean.unwrap_or(0.0),
+            next_bass = next_track.sidecar.band_energy_means.as_ref().map(|b| b.bass).unwrap_or(0.0),
+            next_phrase_aligned = next_track.sidecar.phrase_aligned(),
             "selector picked"
         );
 
@@ -164,8 +168,12 @@ async fn main() -> anyhow::Result<()> {
         // Arm the transition. If --force-recipe was passed, override
         // `pick_recipe`'s natural choice and log the divergence so the operator
         // can see they're not seeing planner behavior.
-        let natural_choice =
-            dj_engine::recipe::pick_recipe(&plan, &current, &next_track, &recipe_recency);
+        let (natural_choice, scored) = dj_engine::recipe::pick_recipe_with_scores(
+            &plan,
+            &current,
+            &next_track,
+            &recipe_recency,
+        );
         let choice = cli
             .force_recipe
             .map(|fr| fr.to_recipe_choice())
@@ -194,6 +202,12 @@ async fn main() -> anyhow::Result<()> {
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
         let transition_start_master = mixer.master_clock_frames();
         let transition_type = transition_type_label(plan.length_bars, plan.use_eq_swap);
+        // Compact score string: "equal_power=0.51 bass_swap=0.84 ..."
+        let scores_str: String = scored
+            .iter()
+            .map(|(c, s)| format!("{}={:.2}", recipe_choice_name(*c), s))
+            .collect::<Vec<_>>()
+            .join(" ");
         info!(
             outgoing = %short_name(&current.sidecar.source_path),
             incoming = %short_name(&next_track.sidecar.source_path),
@@ -207,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
             outgoing_outro_start = plan.outgoing_crossfade_start_seconds,
             incoming_intro_end = plan.incoming_crossfade_start_seconds,
             t_start_frames = transition_start_master,
+            scores = %scores_str,
             "transition arming"
         );
 
@@ -342,6 +357,9 @@ async fn main() -> anyhow::Result<()> {
         let transition_duration_seconds = (handle.end_master_clock_frames - transition_start_master)
             as f64
             / dj_engine::ffmpeg::SAMPLE_RATE as f64;
+        let energy_delta = next_track.sidecar.energy_mean.unwrap_or(0.5)
+            - current.sidecar.energy_mean.unwrap_or(0.5);
+        let pitch_shift_cents = 1200.0 * ratio.log2();
         info!(
             outgoing = %short_name(&current.sidecar.source_path),
             incoming = %short_name(&next_track.sidecar.source_path),
@@ -349,6 +367,9 @@ async fn main() -> anyhow::Result<()> {
             duration_seconds = transition_duration_seconds,
             recipe = handle.recipe_name,
             transition_type,
+            bpm_ratio = ratio,
+            energy_delta,
+            pitch_shift_cents,
             "transition complete"
         );
 
@@ -370,6 +391,22 @@ fn short_name(source_path: &str) -> &str {
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(source_path)
+}
+
+/// Maps a `RecipeChoice` to its canonical name string. Mirrors `recipe_name` above.
+fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
+    match c {
+        dj_engine::recipe::RecipeChoice::EqualPower => "equal_power",
+        dj_engine::recipe::RecipeChoice::HardCut => "hard_cut",
+        dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap",
+        dj_engine::recipe::RecipeChoice::FilterFade => "filter_fade",
+        dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
+        dj_engine::recipe::RecipeChoice::EchoOut => "echo_out",
+        dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
+        dj_engine::recipe::RecipeChoice::ThreeBandSwap => "three_band_swap",
+        dj_engine::recipe::RecipeChoice::EchoThrow => "echo_throw",
+        dj_engine::recipe::RecipeChoice::HighsFirst => "highs_first",
+    }
 }
 
 /// Human-readable label for the transition variant a `TransitionPlan` represents.
