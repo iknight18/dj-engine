@@ -110,6 +110,16 @@ pub enum Phase {
     },
     /// Tempo Step at bar 0. Emitted once per script by `Incoming`.
     TempoAlign { deck: DeckRole, ratio: f64 },
+    /// Linear tempo ramp on a deck. Unlike other phases, the span MAY extend past
+    /// `TransitionScript::length_bars` — used by `build_and_compile` to inject a
+    /// pitch-journey-back automation that runs during the new master's playback.
+    TempoRamp {
+        deck: DeckRole,
+        from: f64,
+        to: f64,
+        span: BarSpan,
+        curve: Curve,
+    },
 }
 
 use crate::automation::{Automation, AutomationTarget};
