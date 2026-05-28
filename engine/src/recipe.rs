@@ -39,10 +39,14 @@ pub struct RecipeOutput {
 
 pub trait Recipe {
     fn name(&self) -> &'static str;
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput;
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> crate::recipe_script::TransitionScript;
+    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+        crate::recipe_script::compile(&self.build_script(ctx), ctx)
+    }
 }
 
-use crate::automation::{AutomationTarget, Curve};
+use crate::automation::{Curve};
+use crate::recipe_script::{bar, bars, DeckRole, EqBand, Phase, TransitionScript};
 
 pub struct EqualPowerCrossfade;
 
@@ -51,53 +55,36 @@ impl Recipe for EqualPowerCrossfade {
         "equal_power_crossfade"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
-        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
-        let sr = ctx.sample_rate as f64;
+        let l = ctx.plan.length_bars as f64;
 
-        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
-        let t0 = ctx.master_clock_frames;
-        let t1 = t0 + length_frames;
-
-        let outgoing_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::EqualPowerOut,
-        };
-
-        let incoming_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::EqualPowerIn,
-        };
-
-        // Tempo Step is a no-op confirmation (cue() already set state.tempo = ratio).
-        // Kept for clarity; sub-projects 2+ may use it to express explicit tempo
-        // changes mid-set.
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
-
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader],
-            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+            ],
             outgoing_init: None,
             incoming_init: None,
-            total_duration_frames: length_frames,
         }
     }
 }
@@ -109,43 +96,35 @@ impl Recipe for HardCut {
         "hard_cut"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
-        let t0 = ctx.master_clock_frames;
 
-        let outgoing_fader_off = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::Step,
-        };
-        let incoming_fader_on = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::Step,
-        };
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
-
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader_off],
-            incoming_automations: vec![incoming_fader_on, incoming_tempo_step],
+        TransitionScript {
+            length_bars: 0,
+            phases: vec![
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+            ],
             outgoing_init: None,
             incoming_init: None,
-            total_duration_frames: 1,
         }
     }
 }
@@ -166,42 +145,33 @@ impl Recipe for BassSwap {
         "bass_swap_crossfade"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
-        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
-        let sr = ctx.sample_rate as f64;
-        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
-        let t0 = ctx.master_clock_frames;
-        let t1 = t0 + length_frames;
+        let l = ctx.plan.length_bars as f64;
 
-        let outgoing_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::EqualPowerOut,
-        };
-        let incoming_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::EqualPowerIn,
-        };
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
+        let mut phases = vec![
+            Phase::Fader {
+                deck: DeckRole::Outgoing,
+                from: 1.0,
+                to: 0.0,
+                span: bars(0.0, l),
+                curve: Curve::EqualPowerOut,
+            },
+            Phase::Fader {
+                deck: DeckRole::Incoming,
+                from: 0.0,
+                to: 1.0,
+                span: bars(0.0, l),
+                curve: Curve::EqualPowerIn,
+            },
+            Phase::TempoAlign {
+                deck: DeckRole::Incoming,
+                ratio,
+            },
+        ];
 
-        // Bass-content adaptation.
         let outgoing_bass = ctx
             .outgoing
             .sidecar
@@ -217,18 +187,15 @@ impl Recipe for BassSwap {
             .map(|b| b.bass)
             .unwrap_or(0.5);
 
-        // Both bass-light → just an equal-power crossfade, no EQ shenanigans.
         if outgoing_bass < 0.3 && incoming_bass < 0.3 {
-            return RecipeOutput {
-                outgoing_automations: vec![outgoing_fader],
-                incoming_automations: vec![incoming_fader, incoming_tempo_step],
+            return TransitionScript {
+                length_bars: ctx.plan.length_bars,
+                phases,
                 outgoing_init: None,
                 incoming_init: None,
-                total_duration_frames: length_frames,
             };
         }
 
-        // Both bass-heavy → wider gap so big basslines clear before the new one enters.
         let (kill_start, kill_end, rel_start, rel_end) =
             if outgoing_bass > 0.5 && incoming_bass > 0.5 {
                 (0.30, 0.48, 0.52, 0.70)
@@ -236,43 +203,34 @@ impl Recipe for BassSwap {
                 (0.35, 0.48, 0.52, 0.65)
             };
 
-        let l = length_frames as f64;
-        let outgoing_eq_low_kill = Automation {
-            target: AutomationTarget::EqLow,
-            t_start_frames: t0 + (kill_start * l) as u64,
-            t_end_frames: t0 + (kill_end * l) as u64,
-            from: 0.0,
-            to: -40.0,
+        phases.push(Phase::EqStep {
+            deck: DeckRole::Incoming,
+            band: EqBand::Low,
+            value_db: -40.0,
+            at: bar(0.0),
+        });
+        phases.push(Phase::EqRamp {
+            deck: DeckRole::Outgoing,
+            band: EqBand::Low,
+            from_db: 0.0,
+            to_db: -40.0,
+            span: bars(kill_start * l, kill_end * l),
             curve: Curve::Linear,
-        };
-        let incoming_eq_low_init = Automation {
-            target: AutomationTarget::EqLow,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: -40.0,
-            to: -40.0,
-            curve: Curve::Step,
-        };
-        let incoming_eq_low_release = Automation {
-            target: AutomationTarget::EqLow,
-            t_start_frames: t0 + (rel_start * l) as u64,
-            t_end_frames: t0 + (rel_end * l) as u64,
-            from: -40.0,
-            to: 0.0,
+        });
+        phases.push(Phase::EqRamp {
+            deck: DeckRole::Incoming,
+            band: EqBand::Low,
+            from_db: -40.0,
+            to_db: 0.0,
+            span: bars(rel_start * l, rel_end * l),
             curve: Curve::Linear,
-        };
+        });
 
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader, outgoing_eq_low_kill],
-            incoming_automations: vec![
-                incoming_fader,
-                incoming_tempo_step,
-                incoming_eq_low_init,
-                incoming_eq_low_release,
-            ],
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases,
             outgoing_init: None,
             incoming_init: None,
-            total_duration_frames: length_frames,
         }
     }
 }
@@ -288,68 +246,50 @@ impl Recipe for FilterFade {
         "filter_fade"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
-        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
-        let sr = ctx.sample_rate as f64;
-        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
-        let t0 = ctx.master_clock_frames;
-        let t1 = t0 + length_frames;
+        let l = ctx.plan.length_bars as f64;
 
-        let outgoing_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::EqualPowerOut,
-        };
-        let incoming_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::EqualPowerIn,
-        };
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
-        let incoming_filter_init = Automation {
-            target: AutomationTarget::Filter,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: 1.0,
-            to: 1.0,
-            curve: Curve::Step,
-        };
-        let incoming_filter_sweep = Automation {
-            target: AutomationTarget::Filter,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::Linear,
-        };
-
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader],
-            incoming_automations: vec![
-                incoming_fader,
-                incoming_tempo_step,
-                incoming_filter_init,
-                incoming_filter_sweep,
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::Linear,
+                },
             ],
             outgoing_init: None,
             incoming_init: None,
-            total_duration_frames: length_frames,
         }
     }
 }
@@ -365,56 +305,43 @@ impl Recipe for FilterKill {
         "filter_kill"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
-        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
-        let sr = ctx.sample_rate as f64;
-        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
-        let t0 = ctx.master_clock_frames;
-        let t1 = t0 + length_frames;
-        let filter_end = t0 + ((length_frames as f64) * 0.6) as u64;
+        let l = ctx.plan.length_bars as f64;
 
-        let outgoing_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::EqualPowerOut,
-        };
-        let outgoing_filter_sweep = Automation {
-            target: AutomationTarget::Filter,
-            t_start_frames: t0,
-            t_end_frames: filter_end,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::Linear,
-        };
-        let incoming_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::EqualPowerIn,
-        };
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
-
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader, outgoing_filter_sweep],
-            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Outgoing,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.6 * l),
+                    curve: Curve::Linear,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+            ],
             outgoing_init: None,
             incoming_init: None,
-            total_duration_frames: length_frames,
         }
     }
 }
@@ -431,53 +358,43 @@ impl Recipe for EchoOut {
         "echo_out"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
         let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
         let beat_seconds = bar_seconds / 4.0;
-        let sr = ctx.sample_rate as f64;
-        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
-        let t0 = ctx.master_clock_frames;
-        let t1 = t0 + length_frames;
+        let l = ctx.plan.length_bars as f64;
 
-        let outgoing_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::EqualPowerOut,
-        };
-        let incoming_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::EqualPowerIn,
-        };
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
-        let outgoing_echo_ramp = Automation {
-            target: AutomationTarget::EchoMix,
-            t_start_frames: t0,
-            t_end_frames: t0 + length_frames / 2,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::Linear,
-        };
-
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader, outgoing_echo_ramp],
-            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::EchoMix {
+                    deck: DeckRole::Outgoing,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l / 2.0),
+                    curve: Curve::Linear,
+                },
+            ],
             outgoing_init: Some(DeckInitConfig {
                 echo_delay_seconds: Some(beat_seconds),
                 echo_feedback: Some(0.5),
@@ -485,7 +402,6 @@ impl Recipe for EchoOut {
                 loop_bar_seconds: None,
             }),
             incoming_init: None,
-            total_duration_frames: length_frames,
         }
     }
 }
@@ -502,60 +418,40 @@ impl Recipe for LoopOut {
         "loop_out"
     }
 
-    fn build(&self, ctx: &TransitionContext<'_>) -> RecipeOutput {
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
         let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
-        let sr = ctx.sample_rate as f64;
-        let length_frames = (ctx.plan.length_bars as f64 * bar_seconds * sr) as u64;
-        let t0 = ctx.master_clock_frames;
-        let t1 = t0 + length_frames;
+        let l = ctx.plan.length_bars as f64;
 
-        let outgoing_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 1.0,
-            to: 0.0,
-            curve: Curve::EqualPowerOut,
-        };
-        let incoming_fader = Automation {
-            target: AutomationTarget::Fader,
-            t_start_frames: t0,
-            t_end_frames: t1,
-            from: 0.0,
-            to: 1.0,
-            curve: Curve::EqualPowerIn,
-        };
-        let incoming_tempo_step = Automation {
-            target: AutomationTarget::Tempo,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: ratio,
-            to: ratio,
-            curve: Curve::Step,
-        };
-        let outgoing_loop_on = Automation {
-            target: AutomationTarget::LoopGate,
-            t_start_frames: t0,
-            t_end_frames: t0 + 1,
-            from: 1.0,
-            to: 1.0,
-            curve: Curve::Step,
-        };
-        let outgoing_loop_off = Automation {
-            target: AutomationTarget::LoopGate,
-            t_start_frames: t1,
-            t_end_frames: t1 + 1,
-            from: 0.0,
-            to: 0.0,
-            curve: Curve::Step,
-        };
-
-        RecipeOutput {
-            outgoing_automations: vec![outgoing_fader, outgoing_loop_on, outgoing_loop_off],
-            incoming_automations: vec![incoming_fader, incoming_tempo_step],
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::LoopGate {
+                    deck: DeckRole::Outgoing,
+                    on_at: bar(0.0),
+                    off_at: bar(l),
+                },
+            ],
             outgoing_init: Some(DeckInitConfig {
                 echo_delay_seconds: None,
                 echo_feedback: None,
@@ -563,7 +459,6 @@ impl Recipe for LoopOut {
                 loop_bar_seconds: Some(bar_seconds),
             }),
             incoming_init: None,
-            total_duration_frames: length_frames,
         }
     }
 }
