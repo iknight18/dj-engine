@@ -58,6 +58,9 @@ pub enum ForceRecipe {
     ThreeBandSwap,
     EchoThrow,
     HighsFirst,
+    Drop,
+    BreakdownBridge,
+    DoubleDrop,
 }
 
 impl ForceRecipe {
@@ -73,6 +76,9 @@ impl ForceRecipe {
             ForceRecipe::ThreeBandSwap => crate::recipe::RecipeChoice::ThreeBandSwap,
             ForceRecipe::EchoThrow => crate::recipe::RecipeChoice::EchoThrow,
             ForceRecipe::HighsFirst => crate::recipe::RecipeChoice::HighsFirst,
+            ForceRecipe::Drop => crate::recipe::RecipeChoice::Drop,
+            ForceRecipe::BreakdownBridge => crate::recipe::RecipeChoice::BreakdownBridge,
+            ForceRecipe::DoubleDrop => crate::recipe::RecipeChoice::DoubleDrop,
         }
     }
 }

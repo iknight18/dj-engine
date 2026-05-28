@@ -224,6 +224,9 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::ThreeBandSwap => "three_band_swap",
             dj_engine::recipe::RecipeChoice::EchoThrow => "echo_throw",
             dj_engine::recipe::RecipeChoice::HighsFirst => "highs_first",
+            dj_engine::recipe::RecipeChoice::Drop => "drop",
+            dj_engine::recipe::RecipeChoice::BreakdownBridge => "breakdown_bridge",
+            dj_engine::recipe::RecipeChoice::DoubleDrop => "double_drop",
         };
         let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
@@ -374,6 +377,42 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            dj_engine::recipe::RecipeChoice::Drop => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::Drop,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::BreakdownBridge => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::BreakdownBridge,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::DoubleDrop => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::DoubleDrop,
+                )
+                .await?
+            }
         };
 
         // Tick through the transition.
@@ -444,6 +483,9 @@ fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
         dj_engine::recipe::RecipeChoice::ThreeBandSwap => "three_band_swap",
         dj_engine::recipe::RecipeChoice::EchoThrow => "echo_throw",
         dj_engine::recipe::RecipeChoice::HighsFirst => "highs_first",
+        dj_engine::recipe::RecipeChoice::Drop => "drop",
+        dj_engine::recipe::RecipeChoice::BreakdownBridge => "breakdown_bridge",
+        dj_engine::recipe::RecipeChoice::DoubleDrop => "double_drop",
     }
 }
 
