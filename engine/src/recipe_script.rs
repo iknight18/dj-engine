@@ -373,6 +373,43 @@ pub fn compile(script: &TransitionScript, ctx: &TransitionContext<'_>) -> Recipe
                     }
                 );
             }
+            Phase::TempoRamp {
+                deck,
+                from,
+                to,
+                span,
+                curve,
+            } => {
+                if !span.end.bars.is_finite() || !span.start.bars.is_finite() {
+                    warn!("compile: TempoRamp has non-finite span, dropping phase");
+                } else if span.end.bars < span.start.bars {
+                    warn!(
+                        "compile: TempoRamp end={} < start={}, dropping phase",
+                        span.end.bars, span.start.bars
+                    );
+                } else {
+                    // Direct frame conversion — do NOT clamp to length_bars.
+                    // The journey intentionally extends past the transition window.
+                    let t_start = t0 + (span.start.bars * frames_per_bar) as u64;
+                    let t_end_raw = t0 + (span.end.bars * frames_per_bar) as u64;
+                    let t_end = if t_end_raw <= t_start {
+                        t_start + 1
+                    } else {
+                        t_end_raw
+                    };
+                    push!(
+                        deck,
+                        Automation {
+                            target: AutomationTarget::Tempo,
+                            t_start_frames: t_start,
+                            t_end_frames: t_end,
+                            from,
+                            to,
+                            curve,
+                        }
+                    );
+                }
+            }
         }
     }
 

@@ -397,3 +397,112 @@ fn init_configs_pass_through() {
     assert_eq!(out_init.echo_feedback, Some(0.75));
     assert!(out.incoming_init.is_none());
 }
+
+#[test]
+fn tempo_ramp_compiles_to_tempo_linear_automation() {
+    let outgoing = track();
+    let incoming = track();
+    let plan = plan_16();
+    let ctx = make_ctx(&outgoing, &incoming, &plan, 0);
+
+    let script = TransitionScript {
+        length_bars: 16,
+        phases: vec![Phase::TempoRamp {
+            deck: DeckRole::Incoming,
+            from: 0.97,
+            to: 1.0,
+            span: bars(16.0, 48.0),
+            curve: Curve::Linear,
+        }],
+        outgoing_init: None,
+        incoming_init: None,
+    };
+    let out = compile(&script, &ctx);
+    assert_eq!(out.incoming_automations.len(), 1);
+    let a = &out.incoming_automations[0];
+    assert_eq!(a.target, AutomationTarget::Tempo);
+    assert_eq!(a.curve, Curve::Linear);
+    assert!((a.from - 0.97).abs() < 1e-9);
+    assert!((a.to - 1.0).abs() < 1e-9);
+    assert_eq!(a.t_start_frames, 16 * 88200);
+    assert_eq!(a.t_end_frames, 48 * 88200);
+}
+
+#[test]
+fn tempo_ramp_span_is_not_clamped_to_length_bars() {
+    let outgoing = track();
+    let incoming = track();
+    let plan = plan_16();
+    let ctx = make_ctx(&outgoing, &incoming, &plan, 0);
+
+    let script = TransitionScript {
+        length_bars: 16,
+        phases: vec![Phase::TempoRamp {
+            deck: DeckRole::Incoming,
+            from: 0.97,
+            to: 1.0,
+            span: bars(16.0, 64.0), // ends well past length_bars=16
+            curve: Curve::Linear,
+        }],
+        outgoing_init: None,
+        incoming_init: None,
+    };
+    let out = compile(&script, &ctx);
+    assert_eq!(out.incoming_automations.len(), 1);
+    assert_eq!(out.incoming_automations[0].t_end_frames, 64 * 88200);
+}
+
+#[test]
+fn tempo_ramp_inverted_span_is_dropped() {
+    let outgoing = track();
+    let incoming = track();
+    let plan = plan_16();
+    let ctx = make_ctx(&outgoing, &incoming, &plan, 0);
+
+    let script = TransitionScript {
+        length_bars: 16,
+        phases: vec![Phase::TempoRamp {
+            deck: DeckRole::Incoming,
+            from: 0.97,
+            to: 1.0,
+            span: BarSpan {
+                start: BarPos { bars: 48.0 },
+                end: BarPos { bars: 16.0 },
+            },
+            curve: Curve::Linear,
+        }],
+        outgoing_init: None,
+        incoming_init: None,
+    };
+    let out = compile(&script, &ctx);
+    assert_eq!(out.incoming_automations.len(), 0);
+}
+
+#[test]
+fn tempo_ramp_zero_length_span_emits_one_frame_step() {
+    let outgoing = track();
+    let incoming = track();
+    let plan = plan_16();
+    let ctx = make_ctx(&outgoing, &incoming, &plan, 0);
+
+    let script = TransitionScript {
+        length_bars: 16,
+        phases: vec![Phase::TempoRamp {
+            deck: DeckRole::Incoming,
+            from: 0.97,
+            to: 1.0,
+            span: bars(16.0, 16.0),
+            curve: Curve::Linear,
+        }],
+        outgoing_init: None,
+        incoming_init: None,
+    };
+    let out = compile(&script, &ctx);
+    // end == start → emit a single-frame automation (matches the behavior of
+    // other phases with collapsed spans).
+    assert_eq!(out.incoming_automations.len(), 1);
+    assert_eq!(
+        out.incoming_automations[0].t_end_frames,
+        out.incoming_automations[0].t_start_frames + 1
+    );
+}
