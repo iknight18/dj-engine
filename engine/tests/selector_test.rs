@@ -57,14 +57,35 @@ fn picks_compatible_track() {
 
 #[test]
 fn falls_back_when_no_strict_match() {
+    // The final fallback is now capped at 20% BPM deviation. A candidate at
+    // 25% (150 vs 120 BPM) is beyond the cap and should not be picked; the
+    // selector correctly returns None when no candidate is within range.
     let library = vec![
         track("a", 120.0, "8A", 0.5, true),
-        track("z", 150.0, "3B", 0.9, true), // way off but only candidate
+        track("z", 150.0, "3B", 0.9, true), // 25% BPM difference — beyond the 20% cap
     ];
     let recency = RecencyRing::new(20);
     let mut sel = Selector::new(&library, &recency, 0.5);
     let current = &library[0];
-    let next = sel.pick_next(current).expect("fallback should still pick");
+    assert!(
+        sel.pick_next(current).is_none(),
+        "selector should return None when only candidate is >20% away in BPM"
+    );
+}
+
+#[test]
+fn falls_back_within_bpm_cap() {
+    // At exactly 19% BPM deviation (≤20%), the final fallback should still pick.
+    let library = vec![
+        track("a", 120.0, "8A", 0.5, true),
+        track("z", 142.0, "3B", 0.9, true), // ~18% BPM difference — within 20% cap
+    ];
+    let recency = RecencyRing::new(20);
+    let mut sel = Selector::new(&library, &recency, 0.5);
+    let current = &library[0];
+    let next = sel
+        .pick_next(current)
+        .expect("fallback should pick within 20% cap");
     assert_eq!(next.sidecar.source_path, "z");
 }
 

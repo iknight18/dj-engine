@@ -107,6 +107,7 @@ async fn full_transition_outputs_continuous_audio() {
         incoming_crossfade_start_seconds: 1.0,
         length_bars: 2,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,
@@ -204,6 +205,7 @@ async fn filter_fade_transition_outputs_continuous_audio() {
         incoming_crossfade_start_seconds: 1.0,
         length_bars: 2,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,
@@ -289,6 +291,7 @@ async fn filter_kill_transition_outputs_continuous_audio() {
         incoming_crossfade_start_seconds: 1.0,
         length_bars: 2,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,
@@ -375,6 +378,7 @@ async fn bass_swap_transition_outputs_continuous_audio() {
         incoming_crossfade_start_seconds: 1.0,
         length_bars: 2,
         use_eq_swap: true,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,
@@ -460,6 +464,7 @@ async fn echo_out_transition_outputs_continuous_audio() {
         incoming_crossfade_start_seconds: 1.0,
         length_bars: 2,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,
@@ -545,6 +550,7 @@ async fn loop_out_transition_outputs_continuous_audio() {
         incoming_crossfade_start_seconds: 1.0,
         length_bars: 2,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,

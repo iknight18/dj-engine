@@ -11,6 +11,9 @@ pub struct TransitionPlan {
     /// 0 means hard cut (no crossfade). Other values: 8, 16, 32 bars.
     pub length_bars: usize,
     pub use_eq_swap: bool,
+    /// True iff the planner judged the pair too far apart in BPM/confidence to
+    /// beatmatch. HardCut should skip its TempoAlign phase when this is set.
+    pub skip_tempo_align: bool,
 }
 
 // Tunable thresholds. Adjust by ear after listening to several hours of output.
@@ -21,7 +24,22 @@ const LONG_BLEND_ENERGY_DELTA: f64 = 0.10;
 const PHRASE_BARS: usize = 16;
 
 pub fn plan_transition(outgoing: &Sidecar, incoming: &Sidecar) -> TransitionPlan {
-    let (length_bars, use_eq_swap) = pick_length_and_variant(outgoing, incoming);
+    // Gate: if the BPM ratio is too wide or either track's confidence is too low,
+    // force a hard cut and skip TempoAlign so the incoming plays at its natural BPM.
+    let out_bpm = outgoing.bpm.unwrap_or(120.0);
+    let inc_bpm = incoming.bpm.unwrap_or(out_bpm);
+    let ratio = out_bpm / inc_bpm.max(1.0);
+    let ratio_abs_delta = (ratio - 1.0).abs();
+    let out_conf = outgoing.bpm_confidence.unwrap_or(1.0);
+    let inc_conf = incoming.bpm_confidence.unwrap_or(1.0);
+    let bpm_ratio_too_wide = ratio_abs_delta > 0.08;
+    let confidence_too_low = out_conf < 0.7 || inc_conf < 0.7;
+    let skip_tempo_align = bpm_ratio_too_wide || confidence_too_low;
+    let (length_bars, use_eq_swap) = if skip_tempo_align {
+        (0usize, false)
+    } else {
+        pick_length_and_variant(outgoing, incoming)
+    };
 
     let raw_outgoing_start = outgoing.outro_start_seconds.unwrap_or(0.0);
     let raw_incoming_start = incoming.intro_end_seconds.unwrap_or(0.0);
@@ -42,6 +60,7 @@ pub fn plan_transition(outgoing: &Sidecar, incoming: &Sidecar) -> TransitionPlan
         incoming_crossfade_start_seconds,
         length_bars,
         use_eq_swap,
+        skip_tempo_align,
     }
 }
 

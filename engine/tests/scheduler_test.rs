@@ -59,6 +59,7 @@ async fn arm_cues_incoming_and_schedules_automations() {
         incoming_crossfade_start_seconds: 2.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let handle = TransitionScheduler::arm(
         &mut mixer,

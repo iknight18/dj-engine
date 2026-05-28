@@ -101,28 +101,32 @@ impl Recipe for HardCut {
         let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
 
+        let mut phases = vec![
+            Phase::Fader {
+                deck: DeckRole::Outgoing,
+                from: 1.0,
+                to: 0.0,
+                span: bars(0.0, 0.0),
+                curve: Curve::Step,
+            },
+            Phase::Fader {
+                deck: DeckRole::Incoming,
+                from: 0.0,
+                to: 1.0,
+                span: bars(0.0, 0.0),
+                curve: Curve::Step,
+            },
+        ];
+        if !ctx.plan.skip_tempo_align {
+            phases.push(Phase::TempoAlign {
+                deck: DeckRole::Incoming,
+                ratio,
+            });
+        }
+
         TransitionScript {
             length_bars: 0,
-            phases: vec![
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-            ],
+            phases,
             outgoing_init: None,
             incoming_init: None,
         }
@@ -390,14 +394,14 @@ impl Recipe for EchoOut {
                 Phase::EchoMix {
                     deck: DeckRole::Outgoing,
                     from: 0.0,
-                    to: 1.0,
+                    to: 0.55,
                     span: bars(0.0, l / 2.0),
                     curve: Curve::Linear,
                 },
             ],
             outgoing_init: Some(DeckInitConfig {
                 echo_delay_seconds: Some(beat_seconds),
-                echo_feedback: Some(0.5),
+                echo_feedback: Some(0.35),
                 loop_bars: None,
                 loop_bar_seconds: None,
             }),
@@ -599,15 +603,26 @@ impl Recipe for EchoThrow {
                     span: bars(0.0, l),
                     curve: Curve::EqualPowerIn,
                 },
-                Phase::EchoThrow {
+                // Triangle wet envelope over the last 2 bars: quick swell (0.25 bar) to 0.6,
+                // then linear decay (0.75 bar) back to 0.
+                Phase::EchoMix {
                     deck: DeckRole::Outgoing,
-                    at: bar((l - 2.0).max(0.0)),
-                    hold_bars: 1.0,
+                    from: 0.0,
+                    to: 0.6,
+                    span: bars((l - 2.0).max(0.0), (l - 1.75).max(0.0)),
+                    curve: Curve::Linear,
+                },
+                Phase::EchoMix {
+                    deck: DeckRole::Outgoing,
+                    from: 0.6,
+                    to: 0.0,
+                    span: bars((l - 1.75).max(0.0), (l - 1.0).max(0.0)),
+                    curve: Curve::Linear,
                 },
             ],
             outgoing_init: Some(DeckInitConfig {
                 echo_delay_seconds: Some(beat_seconds),
-                echo_feedback: Some(0.75),
+                echo_feedback: Some(0.5),
                 loop_bars: None,
                 loop_bar_seconds: None,
             }),
@@ -719,6 +734,50 @@ pub fn pick_recipe_plan_only(plan: &TransitionPlan) -> RecipeChoice {
     } else {
         RecipeChoice::EqualPower
     }
+}
+
+/// Like `pick_recipe`, but also returns the score for every candidate (after
+/// recency penalty and jitter). For logging at transition-arming time.
+pub fn pick_recipe_with_scores(
+    plan: &TransitionPlan,
+    outgoing: &LoadedTrack,
+    incoming: &LoadedTrack,
+    recency: &crate::recipe_recency::RecipeRecency,
+) -> (RecipeChoice, Vec<(RecipeChoice, f64)>) {
+    if plan.length_bars == 0 {
+        return (RecipeChoice::HardCut, vec![(RecipeChoice::HardCut, 1.0)]);
+    }
+    let inputs = PairScoreInputs::from_pair(plan, outgoing, incoming);
+    let candidates = [
+        RecipeChoice::EqualPower,
+        RecipeChoice::BassSwap,
+        RecipeChoice::FilterFade,
+        RecipeChoice::FilterKill,
+        RecipeChoice::EchoOut,
+        RecipeChoice::LoopOut,
+        RecipeChoice::ThreeBandSwap,
+        RecipeChoice::EchoThrow,
+        RecipeChoice::HighsFirst,
+    ];
+    let jitter_range = 0.04;
+    let mut scored: Vec<(RecipeChoice, f64)> = Vec::with_capacity(candidates.len());
+    let mut best = (RecipeChoice::EqualPower, f64::MIN);
+    for (idx, choice) in candidates.iter().enumerate() {
+        let mut score = score_recipe(*choice, &inputs);
+        if recency.contains(*choice) {
+            score *= 0.5;
+        }
+        let salt = (idx as u64)
+            .wrapping_mul(2654435761)
+            .wrapping_add(recency_hash(recency));
+        let jitter = (salt % 1000) as f64 / 1000.0 * jitter_range;
+        score += jitter;
+        scored.push((*choice, score));
+        if score > best.1 {
+            best = (*choice, score);
+        }
+    }
+    (best.0, scored)
 }
 
 /// Scored picker: ranks all 7 recipes against the pair's properties and a

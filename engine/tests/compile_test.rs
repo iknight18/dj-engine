@@ -74,6 +74,7 @@ fn plan_16() -> TransitionPlan {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     }
 }
 

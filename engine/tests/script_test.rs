@@ -55,6 +55,7 @@ fn plan(length_bars: usize) -> TransitionPlan {
         incoming_crossfade_start_seconds: 16.0,
         length_bars,
         use_eq_swap: false,
+        skip_tempo_align: false,
     }
 }
 
@@ -135,7 +136,7 @@ fn three_band_swap_8_bar_swap_lands_at_bar_7() {
 }
 
 #[test]
-fn echo_throw_16_bar_emits_throw_at_bar_14() {
+fn echo_throw_16_bar_emits_triangle_echo_mix() {
     use dj_engine::recipe::EchoThrow;
     let outgoing = track();
     let incoming = track();
@@ -154,14 +155,27 @@ fn echo_throw_16_bar_emits_throw_at_bar_14() {
 
     let init = script.outgoing_init.expect("outgoing_init for echo");
     assert!((init.echo_delay_seconds.unwrap() - 0.5).abs() < 1e-9);
-    assert!((init.echo_feedback.unwrap() - 0.75).abs() < 1e-9);
+    // Feedback tamed from 0.75 to 0.5.
+    assert!((init.echo_feedback.unwrap() - 0.5).abs() < 1e-9);
 
-    let has_throw = script.phases.iter().any(|p| {
+    // EchoThrow now emits a triangle via two EchoMix ramps instead of a Phase::EchoThrow.
+    // Swell: bar 14.0 → bar 14.25, 0.0 → 0.6
+    let has_swell = script.phases.iter().any(|p| {
         matches!(p,
-        Phase::EchoThrow { deck: DeckRole::Outgoing, at, hold_bars }
-            if (at.bars - 14.0).abs() < 1e-9 && (*hold_bars - 1.0).abs() < 1e-9)
+        Phase::EchoMix { deck: DeckRole::Outgoing, from, to, span, .. }
+            if (*from - 0.0).abs() < 1e-9 && (*to - 0.6).abs() < 1e-9
+               && (span.start.bars - 14.0).abs() < 1e-9 && (span.end.bars - 14.25).abs() < 1e-9)
     });
-    assert!(has_throw, "echo throw at bar 14 holding 1 bar");
+    assert!(has_swell, "triangle swell on [14.0, 14.25]");
+
+    // Decay: bar 14.25 → bar 15.0, 0.6 → 0.0
+    let has_decay = script.phases.iter().any(|p| {
+        matches!(p,
+        Phase::EchoMix { deck: DeckRole::Outgoing, from, to, span, .. }
+            if (*from - 0.6).abs() < 1e-9 && (*to - 0.0).abs() < 1e-9
+               && (span.start.bars - 14.25).abs() < 1e-9 && (span.end.bars - 15.0).abs() < 1e-9)
+    });
+    assert!(has_decay, "triangle decay on [14.25, 15.0]");
 }
 
 #[test]

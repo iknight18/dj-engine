@@ -59,6 +59,7 @@ fn equal_power_same_bpm_emits_one_out_two_in_no_ramp() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = TransitionContext {
         outgoing: &outgoing,
@@ -100,6 +101,7 @@ fn equal_power_diff_bpm_no_ramp_only_step() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = TransitionContext {
         outgoing: &outgoing,
@@ -137,6 +139,7 @@ fn equal_power_crossfade_length_matches_plan() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = TransitionContext {
         outgoing: &outgoing,
@@ -166,6 +169,7 @@ fn hard_cut_emits_step_automations() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 0,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = TransitionContext {
         outgoing: &outgoing,
@@ -192,6 +196,7 @@ fn pick_recipe_chooses_hard_cut_for_zero_bars() {
         incoming_crossfade_start_seconds: 0.0,
         length_bars: 0,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     assert_eq!(
         dj_engine::recipe::pick_recipe_plan_only(&plan),
@@ -206,6 +211,7 @@ fn pick_recipe_chooses_equal_power_for_nonzero_bars() {
         incoming_crossfade_start_seconds: 0.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     assert_eq!(
         dj_engine::recipe::pick_recipe_plan_only(&plan),
@@ -239,6 +245,7 @@ fn standard_plan() -> TransitionPlan {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: true,
+        skip_tempo_align: false,
     }
 }
 
@@ -369,6 +376,7 @@ fn pick_recipe_routes_use_eq_swap_to_bass_swap() {
         incoming_crossfade_start_seconds: 0.0,
         length_bars: 16,
         use_eq_swap: true,
+        skip_tempo_align: false,
     };
     assert_eq!(
         dj_engine::recipe::pick_recipe_plan_only(&plan),
@@ -391,6 +399,7 @@ fn filter_fade_emits_fader_pair_plus_incoming_filter_sweep() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = ctx_for(&outgoing, &incoming, &plan);
     let r = FilterFade.build(&ctx);
@@ -427,6 +436,7 @@ fn echo_out_emits_fader_pair_plus_outgoing_echo_ramp_and_init() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = ctx_for(&outgoing, &incoming, &plan);
     let r = EchoOut.build(&ctx);
@@ -443,7 +453,10 @@ fn echo_out_emits_fader_pair_plus_outgoing_echo_ramp_and_init() {
         .find(|a| a.target == AutomationTarget::EchoMix)
         .expect("outgoing echo ramp");
     assert_eq!(echo_ramp.from, 0.0);
-    assert_eq!(echo_ramp.to, 1.0);
+    assert!(
+        (echo_ramp.to - 0.55).abs() < 1e-9,
+        "EchoOut wet ramp peaks at 0.55"
+    );
 
     // Incoming: Fader + Tempo Step.
     assert_eq!(r.incoming_automations.len(), 2);
@@ -451,7 +464,10 @@ fn echo_out_emits_fader_pair_plus_outgoing_echo_ramp_and_init() {
     // Init: outgoing has echo configured; incoming has no init.
     let init = r.outgoing_init.as_ref().expect("outgoing_init for EchoOut");
     assert!(init.echo_delay_seconds.is_some());
-    assert!((init.echo_feedback.unwrap_or(0.0) - 0.5).abs() < 1e-9);
+    assert!(
+        (init.echo_feedback.unwrap_or(0.0) - 0.35).abs() < 1e-9,
+        "EchoOut feedback tamed to 0.35"
+    );
     assert!(r.incoming_init.is_none());
 }
 
@@ -464,6 +480,7 @@ fn loop_out_emits_fader_pair_plus_outgoing_loop_gate_and_init() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = ctx_for(&outgoing, &incoming, &plan);
     let r = LoopOut.build(&ctx);
@@ -492,6 +509,7 @@ fn filter_kill_emits_outgoing_filter_sweep_to_plus_1_over_60_percent() {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     };
     let ctx = ctx_for(&outgoing, &incoming, &plan);
     let r = FilterKill.build(&ctx);
@@ -624,6 +642,7 @@ fn standard_blend_plan() -> TransitionPlan {
         incoming_crossfade_start_seconds: 16.0,
         length_bars: 16,
         use_eq_swap: false,
+        skip_tempo_align: false,
     }
 }
 
@@ -706,6 +725,7 @@ fn pick_recipe_plan_only_preserved_for_legacy_tests() {
         incoming_crossfade_start_seconds: 0.0,
         length_bars: 16,
         use_eq_swap: true,
+        skip_tempo_align: false,
     };
     assert_eq!(pick_recipe_plan_only(&plan), RecipeChoice::BassSwap);
 }

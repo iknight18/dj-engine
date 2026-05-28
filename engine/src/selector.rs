@@ -55,9 +55,10 @@ impl<'a> Selector<'a> {
                 require_key_match: false,
                 require_mixable: false,
             },
-            // Final fallback: accept anything that's not the current track and not recent.
+            // Final fallback: accept anything within 20% BPM. Beyond that no sane
+            // DJ would try to beatmatch, so the engine would hard-cut anyway.
             Constraints {
-                bpm_window: f64::INFINITY,
+                bpm_window: 0.20,
                 require_key_match: false,
                 require_mixable: false,
             },
