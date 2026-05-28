@@ -996,6 +996,43 @@ impl Recipe for DoubleDrop {
     }
 }
 
+/// Index of the lowest value in `density[lo..hi]`. Returns `None` if the
+/// slice is empty or `lo >= hi`.
+fn bar_with_min_density(density: &[f64], lo: usize, hi: usize) -> Option<usize> {
+    let hi = hi.min(density.len());
+    if lo >= hi {
+        return None;
+    }
+    let mut best = (lo, density[lo]);
+    for i in (lo + 1)..hi {
+        if density[i] < best.1 {
+            best = (i, density[i]);
+        }
+    }
+    Some(best.0)
+}
+
+/// First index in `density[lo..hi]` where `density[i] >= threshold`. Returns
+/// the last index of the slice when no bar passes. Returns `None` for empty
+/// input or `lo >= hi`.
+fn first_bar_at_or_above(
+    density: &[f64],
+    lo: usize,
+    hi: usize,
+    threshold: f64,
+) -> Option<usize> {
+    let hi = hi.min(density.len());
+    if lo >= hi {
+        return None;
+    }
+    for i in lo..hi {
+        if density[i] >= threshold {
+            return Some(i);
+        }
+    }
+    Some(hi - 1)
+}
+
 /// `VocalOverlay`: 16-bar layered transition.
 /// - Bars [0, 4]: incoming's vocals stem fades in over outgoing's full mix.
 ///   Incoming non-vocal stems are kept muted; the mixed fader stays at 1.0
@@ -1112,6 +1149,133 @@ impl Recipe for VocalOverlay {
                     to: 1.0,
                     span: bars(12.0, 16.0),
                     curve: Curve::Linear,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
+/// `BassSwapStemAware`: 16-bar equal-power crossfade, with bass-stem kill/release
+/// timed to actual bass-density structure from the analyzer's per-bar density
+/// arrays. Outgoing's bass stem cuts off at the lowest-bass-density bar in
+/// the last quarter of the window; incoming's bass stem comes in at the first
+/// bar within the window where its bass_density >= 0.7 (with a fallback to
+/// bar 2 if the bass is uniformly low). All other stems crossfade equal-power
+/// across the full window on the mixed fader.
+pub struct BassSwapStemAware;
+
+impl Recipe for BassSwapStemAware {
+    fn name(&self) -> &'static str {
+        "bass_swap_stem_aware"
+    }
+
+    fn requires_stems(&self) -> bool {
+        true
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        use crate::deck::StemKind;
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = 16.0_f64;
+
+        // Map seconds-into-track to bar index for density-array lookups.
+        let outgoing_bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let incoming_bar_seconds = (60.0 / incoming_bpm) * 4.0;
+        let outgoing_outro_bar =
+            (ctx.plan.outgoing_crossfade_start_seconds / outgoing_bar_seconds) as usize;
+        let incoming_intro_bar =
+            (ctx.plan.incoming_crossfade_start_seconds / incoming_bar_seconds) as usize;
+
+        let outgoing_bass_density = ctx
+            .outgoing
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| s.bass_density.clone())
+            .unwrap_or_default();
+        let incoming_bass_density = ctx
+            .incoming
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| s.bass_density.clone())
+            .unwrap_or_default();
+
+        // Outgoing kill: lowest-density bar in window's last quarter [12, 16].
+        let outgoing_kill_bar_track = bar_with_min_density(
+            &outgoing_bass_density,
+            outgoing_outro_bar + 12,
+            outgoing_outro_bar + 16,
+        );
+        let outgoing_kill_bar_window = outgoing_kill_bar_track
+            .map(|b| (b.saturating_sub(outgoing_outro_bar)) as f64)
+            .unwrap_or(14.0)
+            .clamp(0.0, l);
+
+        // Incoming release: first bar in [0, 16] where bass_density >= 0.7;
+        // fall back to bar 2.
+        let incoming_release_bar_track = first_bar_at_or_above(
+            &incoming_bass_density,
+            incoming_intro_bar,
+            incoming_intro_bar + 16,
+            0.7,
+        );
+        let incoming_release_bar_window = incoming_release_bar_track
+            .map(|b| (b.saturating_sub(incoming_intro_bar)) as f64)
+            .unwrap_or(2.0)
+            .clamp(0.0, l);
+
+        TransitionScript {
+            length_bars: 16,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                // Equal-power crossfade on the mixed fader across the full window.
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                // Incoming bass stem: muted from bar 0 until release.
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Bass,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Bass,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(incoming_release_bar_window, incoming_release_bar_window),
+                    curve: Curve::Step,
+                },
+                // Outgoing bass stem: killed at the valley bar.
+                Phase::StemFader {
+                    deck: DeckRole::Outgoing,
+                    stem: StemKind::Bass,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(outgoing_kill_bar_window, outgoing_kill_bar_window),
+                    curve: Curve::Step,
                 },
             ],
             outgoing_init: None,
