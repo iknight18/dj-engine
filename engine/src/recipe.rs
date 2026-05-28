@@ -559,6 +559,62 @@ impl Recipe for ThreeBandSwap {
     }
 }
 
+/// `EchoThrow`: equal-power crossfade with a 1-bar one-shot echo flourish
+/// on the outgoing deck at bar L-2. Echo delay is 1 beat at the outgoing
+/// tempo; feedback is 0.75. The throw fires when the outgoing fader is
+/// already near -6 dB, so the tail rings into the incoming.
+pub struct EchoThrow;
+
+impl Recipe for EchoThrow {
+    fn name(&self) -> &'static str {
+        "echo_throw"
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let beat_seconds = 60.0 / outgoing_bpm;
+        let l = ctx.plan.length_bars as f64;
+
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::EchoThrow {
+                    deck: DeckRole::Outgoing,
+                    at: bar((l - 2.0).max(0.0)),
+                    hold_bars: 1.0,
+                },
+            ],
+            outgoing_init: Some(DeckInitConfig {
+                echo_delay_seconds: Some(beat_seconds),
+                echo_feedback: Some(0.75),
+                loop_bars: None,
+                loop_bar_seconds: None,
+            }),
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,

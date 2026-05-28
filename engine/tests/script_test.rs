@@ -123,3 +123,31 @@ fn three_band_swap_8_bar_swap_lands_at_bar_7() {
             if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 7.0).abs() < 1e-9));
     assert!(has_bass_swap, "outgoing bass-kill at bar 7 for L=8");
 }
+
+#[test]
+fn echo_throw_16_bar_emits_throw_at_bar_14() {
+    use dj_engine::recipe::EchoThrow;
+    let outgoing = track();
+    let incoming = track();
+    let p = plan(16);
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &p,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+    };
+    let script = EchoThrow.build_script(&ctx);
+    assert_eq!(script.length_bars, 16);
+
+    let init = script.outgoing_init.expect("outgoing_init for echo");
+    assert!((init.echo_delay_seconds.unwrap() - 0.5).abs() < 1e-9);
+    assert!((init.echo_feedback.unwrap() - 0.75).abs() < 1e-9);
+
+    let has_throw = script.phases.iter().any(|p| matches!(p,
+        Phase::EchoThrow { deck: DeckRole::Outgoing, at, hold_bars }
+            if (at.bars - 14.0).abs() < 1e-9 && (*hold_bars - 1.0).abs() < 1e-9));
+    assert!(has_throw, "echo throw at bar 14 holding 1 bar");
+}
