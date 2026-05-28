@@ -579,7 +579,8 @@ pub enum RecipeChoice {
     LoopOut,
 }
 
-pub fn pick_recipe(plan: &TransitionPlan) -> RecipeChoice {
+/// Legacy plan-only picker. Kept for tests and as a reference baseline.
+pub fn pick_recipe_plan_only(plan: &TransitionPlan) -> RecipeChoice {
     if plan.length_bars == 0 {
         RecipeChoice::HardCut
     } else if plan.use_eq_swap {
@@ -587,6 +588,83 @@ pub fn pick_recipe(plan: &TransitionPlan) -> RecipeChoice {
     } else {
         RecipeChoice::EqualPower
     }
+}
+
+/// Scored picker: ranks all 7 recipes against the pair's properties and a
+/// recency penalty. Hard-cut shortcuts when `plan.length_bars == 0`.
+pub fn pick_recipe(
+    plan: &TransitionPlan,
+    outgoing: &LoadedTrack,
+    incoming: &LoadedTrack,
+    recency: &crate::recipe_recency::RecipeRecency,
+) -> RecipeChoice {
+    if plan.length_bars == 0 {
+        return RecipeChoice::HardCut;
+    }
+    let inputs = PairScoreInputs::from_pair(plan, outgoing, incoming);
+    let candidates = [
+        RecipeChoice::EqualPower,
+        RecipeChoice::BassSwap,
+        RecipeChoice::FilterFade,
+        RecipeChoice::FilterKill,
+        RecipeChoice::EchoOut,
+        RecipeChoice::LoopOut,
+    ];
+
+    let mut best = (RecipeChoice::EqualPower, f64::MIN);
+    let jitter_range = 0.04;
+    for (idx, choice) in candidates.iter().enumerate() {
+        let mut score = score_recipe(*choice, &inputs);
+        if recency.contains(*choice) {
+            score *= 0.5;
+        }
+        // Deterministic jitter that varies per call: hash the recency state
+        // mixed with the candidate index. Stable for tests with a fixed
+        // recency state.
+        let salt = (idx as u64)
+            .wrapping_mul(2654435761)
+            .wrapping_add(recency_hash(recency));
+        let jitter = (salt % 1000) as f64 / 1000.0 * jitter_range;
+        score += jitter;
+        if score > best.1 {
+            best = (*choice, score);
+        }
+    }
+    best.0
+}
+
+fn recipe_choice_id(c: RecipeChoice) -> u64 {
+    // Stable, ordered id used in the deterministic-jitter mix below.
+    match c {
+        RecipeChoice::EqualPower => 1,
+        RecipeChoice::HardCut => 2,
+        RecipeChoice::BassSwap => 3,
+        RecipeChoice::FilterFade => 4,
+        RecipeChoice::FilterKill => 5,
+        RecipeChoice::EchoOut => 6,
+        RecipeChoice::LoopOut => 7,
+    }
+}
+
+fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
+    // Fold the recency's current contents into a u64. Since RecipeRecency
+    // doesn't expose iteration, mix in the "contains" result for each choice.
+    let mut h: u64 = 0x9e3779b97f4a7c15;
+    for c in [
+        RecipeChoice::EqualPower,
+        RecipeChoice::HardCut,
+        RecipeChoice::BassSwap,
+        RecipeChoice::FilterFade,
+        RecipeChoice::FilterKill,
+        RecipeChoice::EchoOut,
+        RecipeChoice::LoopOut,
+    ] {
+        let bit = if recency.contains(c) { 1 } else { 0 };
+        h = h
+            .wrapping_mul(0x100000001b3)
+            .wrapping_add(recipe_choice_id(c) * 31 + bit);
+    }
+    h
 }
 
 /// Pre-computed inputs the recipe scorer needs. Factoring out the sidecar

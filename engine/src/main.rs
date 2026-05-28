@@ -161,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
         // Arm the transition. If --force-recipe was passed, override
         // `pick_recipe`'s natural choice and log the divergence so the operator
         // can see they're not seeing planner behavior.
-        let natural_choice = dj_engine::recipe::pick_recipe(&plan);
+        let natural_choice = dj_engine::recipe::pick_recipe_plan_only(&plan);
         let choice = cli
             .force_recipe
             .map(|fr| fr.to_recipe_choice())

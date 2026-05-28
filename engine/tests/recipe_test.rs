@@ -193,7 +193,10 @@ fn pick_recipe_chooses_hard_cut_for_zero_bars() {
         length_bars: 0,
         use_eq_swap: false,
     };
-    assert_eq!(pick_recipe(&plan), RecipeChoice::HardCut);
+    assert_eq!(
+        dj_engine::recipe::pick_recipe_plan_only(&plan),
+        RecipeChoice::HardCut
+    );
 }
 
 #[test]
@@ -204,7 +207,10 @@ fn pick_recipe_chooses_equal_power_for_nonzero_bars() {
         length_bars: 16,
         use_eq_swap: false,
     };
-    assert_eq!(pick_recipe(&plan), RecipeChoice::EqualPower);
+    assert_eq!(
+        dj_engine::recipe::pick_recipe_plan_only(&plan),
+        RecipeChoice::EqualPower
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +370,10 @@ fn pick_recipe_routes_use_eq_swap_to_bass_swap() {
         length_bars: 16,
         use_eq_swap: true,
     };
-    assert_eq!(pick_recipe(&plan), RecipeChoice::BassSwap);
+    assert_eq!(
+        dj_engine::recipe::pick_recipe_plan_only(&plan),
+        RecipeChoice::BassSwap
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -592,4 +601,105 @@ fn score_echo_out_rises_on_wind_down() {
 fn score_loop_out_is_low_baseline() {
     let i = inputs_default();
     assert!(score_recipe(RecipeChoice::LoopOut, &i) < 0.35);
+}
+
+// ---------------------------------------------------------------------------
+// scored pick_recipe tests (sub-project 5, task 3)
+// ---------------------------------------------------------------------------
+
+use dj_engine::recipe::pick_recipe_plan_only;
+use dj_engine::recipe_recency::RecipeRecency;
+
+fn bass_heavy_phrase_aligned_pair() -> (LoadedTrack, LoadedTrack) {
+    let mut a = track_with_bass(120.0, 0.7);
+    let mut b = track_with_bass(120.0, 0.7);
+    a.sidecar.is_phrase_aligned = Some(true);
+    b.sidecar.is_phrase_aligned = Some(true);
+    (a, b)
+}
+
+fn standard_blend_plan() -> TransitionPlan {
+    TransitionPlan {
+        outgoing_crossfade_start_seconds: 200.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+    }
+}
+
+#[test]
+fn scored_picks_hard_cut_when_length_zero() {
+    let (a, b) = bass_heavy_phrase_aligned_pair();
+    let mut plan = standard_blend_plan();
+    plan.length_bars = 0;
+    let recency = RecipeRecency::new(5);
+    assert_eq!(pick_recipe(&plan, &a, &b, &recency), RecipeChoice::HardCut);
+}
+
+#[test]
+fn scored_picks_bass_swap_for_heavy_aligned_pair_no_recency() {
+    let (a, b) = bass_heavy_phrase_aligned_pair();
+    let plan = standard_blend_plan();
+    let recency = RecipeRecency::new(5);
+    assert_eq!(pick_recipe(&plan, &a, &b, &recency), RecipeChoice::BassSwap);
+}
+
+#[test]
+fn scored_skips_recent_bass_swap() {
+    let (a, b) = bass_heavy_phrase_aligned_pair();
+    let plan = standard_blend_plan();
+    let mut recency = RecipeRecency::new(5);
+    recency.record(RecipeChoice::BassSwap);
+    // Penalized 0.85 * 0.5 = 0.425, below EqualPower's 0.5. Picker should
+    // switch to EqualPower (or EchoOut at 0.35, but EqualPower is higher).
+    let pick = pick_recipe(&plan, &a, &b, &recency);
+    assert_ne!(
+        pick,
+        RecipeChoice::BassSwap,
+        "should skip recently-used BassSwap"
+    );
+}
+
+#[test]
+fn scored_picks_filter_fade_for_big_energy_boost() {
+    let mut a = track_with_bass(120.0, 0.5);
+    let mut b = track_with_bass(120.0, 0.5);
+    a.sidecar.energy_mean = Some(0.3);
+    b.sidecar.energy_mean = Some(0.7); // +0.4 boost
+    a.sidecar.is_phrase_aligned = Some(false);
+    b.sidecar.is_phrase_aligned = Some(false);
+    let plan = standard_blend_plan();
+    let recency = RecipeRecency::new(5);
+    assert_eq!(
+        pick_recipe(&plan, &a, &b, &recency),
+        RecipeChoice::FilterFade
+    );
+}
+
+#[test]
+fn scored_picks_filter_kill_or_echo_out_for_big_energy_drop() {
+    let mut a = track_with_bass(120.0, 0.5);
+    let mut b = track_with_bass(120.0, 0.5);
+    a.sidecar.energy_mean = Some(0.8);
+    b.sidecar.energy_mean = Some(0.4); // -0.4 drop
+    a.sidecar.is_phrase_aligned = Some(false);
+    b.sidecar.is_phrase_aligned = Some(false);
+    let plan = standard_blend_plan();
+    let recency = RecipeRecency::new(5);
+    let pick = pick_recipe(&plan, &a, &b, &recency);
+    assert!(
+        pick == RecipeChoice::FilterKill || pick == RecipeChoice::EchoOut,
+        "expected FilterKill or EchoOut, got {pick:?}"
+    );
+}
+
+#[test]
+fn pick_recipe_plan_only_preserved_for_legacy_tests() {
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 0.0,
+        incoming_crossfade_start_seconds: 0.0,
+        length_bars: 16,
+        use_eq_swap: true,
+    };
+    assert_eq!(pick_recipe_plan_only(&plan), RecipeChoice::BassSwap);
 }
