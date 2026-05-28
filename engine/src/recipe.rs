@@ -1214,7 +1214,7 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.0
             }
         }
-        RecipeChoice::EqualPower => 0.5,
+        RecipeChoice::EqualPower => 0.15,
         RecipeChoice::BassSwap => {
             let both_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
             let any_heavy = inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5;
@@ -1246,9 +1246,9 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
         }
         RecipeChoice::EchoOut => {
             if inputs.energy_delta < -0.15 {
-                0.65
+                0.45
             } else {
-                0.35
+                0.20
             }
         }
         RecipeChoice::LoopOut => 0.30,

@@ -576,7 +576,9 @@ fn score_hard_cut_only_when_length_zero() {
 #[test]
 fn score_equal_power_is_baseline_half() {
     let i = inputs_default();
-    assert!((score_recipe(RecipeChoice::EqualPower, &i) - 0.5).abs() < 1e-9);
+    // Deprioritized in Phase D (0.50 → 0.15) so stem-aware recipes can take
+    // over for the bulk of phrase-aligned same-BPM cases.
+    assert!((score_recipe(RecipeChoice::EqualPower, &i) - 0.15).abs() < 1e-9);
 }
 
 #[test]
@@ -621,11 +623,12 @@ fn score_filter_kill_rises_with_energy_drop() {
 #[test]
 fn score_echo_out_rises_on_wind_down() {
     let mut i = inputs_default();
+    // Deprioritized in Phase D (0.65 → 0.45 wind-down, 0.35 → 0.20 baseline).
     i.energy_delta = -0.5;
-    assert!(score_recipe(RecipeChoice::EchoOut, &i) > 0.6);
+    assert!(score_recipe(RecipeChoice::EchoOut, &i) > 0.4);
     i.energy_delta = 0.0;
     let baseline = score_recipe(RecipeChoice::EchoOut, &i);
-    assert!(baseline > 0.3 && baseline < 0.4);
+    assert!(baseline > 0.15 && baseline < 0.25);
 }
 
 #[test]
