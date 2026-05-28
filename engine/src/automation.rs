@@ -10,6 +10,8 @@ pub enum AutomationTarget {
     EqMid,
     EqHigh,
     Filter,
+    EchoMix,
+    LoopGate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,6 +150,12 @@ fn apply_value(target: AutomationTarget, v: f64, state: &mut crate::deck::DeckSt
         }
         AutomationTarget::Filter => {
             state.filter_knob = v.clamp(-1.0, 1.0);
+        }
+        AutomationTarget::EchoMix => {
+            state.echo_mix = v.clamp(0.0, 1.0);
+        }
+        AutomationTarget::LoopGate => {
+            state.loop_gate = v.clamp(0.0, 1.0);
         }
     }
 }

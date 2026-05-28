@@ -21,6 +21,8 @@ pub struct DeckState {
     pub eq_mid_db: f64,
     pub eq_high_db: f64,
     pub filter_knob: f64,
+    pub echo_mix: f64,
+    pub loop_gate: f64,
     pub source_path: Option<String>,
     pub play_state: PlayState,
 }
@@ -34,6 +36,8 @@ impl Default for DeckState {
             eq_mid_db: 0.0,
             eq_high_db: 0.0,
             filter_knob: 0.0,
+            echo_mix: 0.0,
+            loop_gate: 0.0,
             source_path: None,
             play_state: PlayState::Stopped,
         }
@@ -55,6 +59,12 @@ const FILTER_HP_FREQ_MAX_RIGHT: f64 = 8_000.0;
 
 // Below this absolute knob value, skip the filter entirely (no biquad evaluation).
 const FILTER_BYPASS_EPSILON: f64 = 0.01;
+
+// Worst-case allocations for per-deck effects. Echo delay is bounded by 2 s
+// (covers a full beat at down to 30 BPM); loop capture is bounded by 8 s (covers
+// 8 bars at down to 30 BPM, or 4 bars at down to 60 BPM).
+const ECHO_CAPACITY_SAMPLES: usize = (SAMPLE_RATE as usize) * 2;
+const LOOP_CAPACITY_SAMPLES: usize = (SAMPLE_RATE as usize) * 8;
 
 /// Map a knob value in `[-1, +1]` to a `(FilterKind, cutoff_hz)` pair using a
 /// log-Hz lerp from the bypass frequency to the max-deflection frequency.
@@ -156,6 +166,8 @@ pub struct Deck {
     filter_l: crate::eq::Biquad,
     filter_r: crate::eq::Biquad,
     last_filter_knob: f64,
+    echo_line: crate::effects::EchoLine,
+    loop_buffer: crate::effects::LoopBuffer,
 }
 
 impl Deck {
@@ -182,6 +194,8 @@ impl Deck {
             filter_l: crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS),
             filter_r: crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS),
             last_filter_knob: 0.0,
+            echo_line: crate::effects::EchoLine::new(ECHO_CAPACITY_SAMPLES),
+            loop_buffer: crate::effects::LoopBuffer::new(LOOP_CAPACITY_SAMPLES),
         }
     }
 
@@ -220,6 +234,7 @@ impl Deck {
         self.ramp_materialized_for = None;
         self.reset_eq();
         self.reset_filter();
+        self.reset_effects();
     }
 
     /// Reset the per-deck EQ chain to passthrough (0 dB on all three bands).
@@ -249,6 +264,31 @@ impl Deck {
         let sr = SAMPLE_RATE as f64;
         self.filter_l = crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS);
         self.filter_r = crate::eq::Biquad::lowpass(sr, FILTER_LP_FREQ_BYPASS);
+    }
+
+    /// Reset the per-deck echo + loop effects to a silent, unconfigured state.
+    /// Used by `cue` and `unload` so a new track starts with no echo tails and
+    /// no captured loop content.
+    fn reset_effects(&mut self) {
+        self.echo_line.clear();
+        self.echo_line.set_params(0, 0.0);
+        self.loop_buffer.clear();
+        self.state.echo_mix = 0.0;
+        self.state.loop_gate = 0.0;
+    }
+
+    /// Configure the echo delay line's static parameters. Called by the
+    /// scheduler from `DeckInitConfig` after `cue()` and before `play()`.
+    pub fn set_echo_params(&mut self, delay_seconds: f64, feedback: f64) {
+        let delay_samples = (delay_seconds * SAMPLE_RATE as f64) as usize;
+        self.echo_line.set_params(delay_samples, feedback);
+    }
+
+    /// Configure the loop buffer's active window length in bars. Called by the
+    /// scheduler from `DeckInitConfig` after `cue()` and before `play()`.
+    pub fn set_loop_bars(&mut self, bars: usize, bar_seconds: f64) {
+        let samples = (bars as f64 * bar_seconds * SAMPLE_RATE as f64) as usize;
+        self.loop_buffer.set_loop_samples(samples);
     }
 }
 
@@ -286,6 +326,7 @@ impl Deck {
         self.ramp_materialized_for = None;
         self.reset_eq();
         self.reset_filter();
+        self.reset_effects();
         Ok(())
     }
 

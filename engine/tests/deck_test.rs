@@ -316,6 +316,18 @@ async fn cue_resets_filter_knob() {
 }
 
 #[tokio::test]
+async fn cue_resets_echo_and_loop_state() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.set_echo_params(0.5, 0.5);
+    d.set_loop_bars(4, 0.5);
+    // Re-cue resets effect state.
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    assert!(d.state().echo_mix.abs() < f64::EPSILON);
+    assert!(d.state().loop_gate.abs() < f64::EPSILON);
+}
+
+#[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);
     d.cue(fixture_track(), 0.0, 1.0).await.unwrap();

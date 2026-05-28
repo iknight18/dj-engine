@@ -309,3 +309,34 @@ fn filter_linear_midpoint_negative() {
     let v = a.sample_value(50).unwrap();
     assert!((v - 0.0).abs() < 1e-9, "got {v}");
 }
+
+#[test]
+fn echo_mix_clamped_to_zero_one() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::EchoMix, 0.0, 2.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.echo_mix - 1.0).abs() < 1e-9);
+
+    let mut q2 = AutomationQueue::new();
+    q2.schedule(ramp(
+        AutomationTarget::EchoMix,
+        0.0,
+        -0.5,
+        Curve::Step,
+        0,
+        1,
+    ));
+    let mut s2 = default_state();
+    q2.step(1, &mut s2);
+    assert!(s2.echo_mix.abs() < 1e-9);
+}
+
+#[test]
+fn loop_gate_clamped_and_installed() {
+    let mut q = AutomationQueue::new();
+    q.schedule(ramp(AutomationTarget::LoopGate, 0.0, 1.0, Curve::Step, 0, 1));
+    let mut s = default_state();
+    q.step(1, &mut s);
+    assert!((s.loop_gate - 1.0).abs() < 1e-9);
+}
