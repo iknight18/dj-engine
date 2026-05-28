@@ -16,6 +16,7 @@ dependencies = [
     "soundfile>=0.12.1",
     "audioread>=3.0.1",
     "rich>=13.7.0",
+    "demucs>=4.0",
     # essentia: no wheel for Python 3.13 / Windows on PyPI (only older 2.1b6.dev234 available, < pinned 1110).
     # Disabled here; later tasks must provide a librosa-based fallback per plan.
     # "essentia>=2.1b6.dev1110; platform_system != 'Darwin' or platform_machine != 'arm64'",
