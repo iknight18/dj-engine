@@ -245,17 +245,21 @@ fn drop_emits_filter_buildup_and_release() {
     assert_eq!(script.length_bars, 4);
 
     // Filter sweep 0.85 -> 0.55 over [0, 4].
-    let has_buildup = script.phases.iter().any(|ph| matches!(ph,
+    let has_buildup = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::Filter { deck: DeckRole::Incoming, from, to, span, curve: Curve::Linear }
             if (*from - 0.85).abs() < 1e-9 && (*to - 0.55).abs() < 1e-9
-               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 4.0).abs() < 1e-9));
+               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 4.0).abs() < 1e-9)
+    });
     assert!(has_buildup, "filter build-up sweep on [0, 4]");
 
     // Filter snap to 0.0 at bar 4.
-    let has_release = script.phases.iter().any(|ph| matches!(ph,
+    let has_release = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::Filter { deck: DeckRole::Incoming, from, to, span, curve: Curve::Step }
             if (*from - 0.0).abs() < 1e-9 && (*to - 0.0).abs() < 1e-9
-               && (span.start.bars - 4.0).abs() < 1e-9 && (span.end.bars - 4.0).abs() < 1e-9));
+               && (span.start.bars - 4.0).abs() < 1e-9 && (span.end.bars - 4.0).abs() < 1e-9)
+    });
     assert!(has_release, "filter release step at bar 4");
 }
 
@@ -277,20 +281,26 @@ fn breakdown_bridge_kills_outgoing_mids_and_bass() {
     let script = BreakdownBridge.build_script(&ctx);
     assert_eq!(script.length_bars, 4);
 
-    let has_low_kill = script.phases.iter().any(|ph| matches!(ph,
+    let has_low_kill = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::EqRamp { deck: DeckRole::Outgoing, band: EqBand::Low, from_db, to_db, .. }
-            if (*from_db - 0.0).abs() < 1e-9 && (*to_db - (-40.0)).abs() < 1e-9));
+            if (*from_db - 0.0).abs() < 1e-9 && (*to_db - (-40.0)).abs() < 1e-9)
+    });
     assert!(has_low_kill, "outgoing low kill");
 
-    let has_mid_kill = script.phases.iter().any(|ph| matches!(ph,
+    let has_mid_kill = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::EqRamp { deck: DeckRole::Outgoing, band: EqBand::Mid, from_db, to_db, .. }
-            if (*from_db - 0.0).abs() < 1e-9 && (*to_db - (-40.0)).abs() < 1e-9));
+            if (*from_db - 0.0).abs() < 1e-9 && (*to_db - (-40.0)).abs() < 1e-9)
+    });
     assert!(has_mid_kill, "outgoing mid kill");
 
-    let has_incoming_drop = script.phases.iter().any(|ph| matches!(ph,
+    let has_incoming_drop = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::Fader { deck: DeckRole::Incoming, from, to, span, curve: Curve::Step }
             if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
-               && (span.start.bars - 4.0).abs() < 1e-9));
+               && (span.start.bars - 4.0).abs() < 1e-9)
+    });
     assert!(has_incoming_drop, "incoming hard-cut in at bar 4");
 }
 
@@ -313,22 +323,28 @@ fn double_drop_holds_silence_then_both_play() {
     assert_eq!(script.length_bars, 2);
 
     // Outgoing fades to silence over [0, 0.5].
-    let has_initial_fadeout = script.phases.iter().any(|ph| matches!(ph,
+    let has_initial_fadeout = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::Fader { deck: DeckRole::Outgoing, from, to, span, curve: Curve::Linear }
             if (*from - 1.0).abs() < 1e-9 && (*to - 0.0).abs() < 1e-9
-               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 0.5).abs() < 1e-9));
+               && (span.start.bars - 0.0).abs() < 1e-9 && (span.end.bars - 0.5).abs() < 1e-9)
+    });
     assert!(has_initial_fadeout, "outgoing initial fade to silence");
 
     // Both decks come back at bar 1.
-    let has_outgoing_return = script.phases.iter().any(|ph| matches!(ph,
+    let has_outgoing_return = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::Fader { deck: DeckRole::Outgoing, from, to, span, curve: Curve::Step }
             if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
-               && (span.start.bars - 1.0).abs() < 1e-9));
+               && (span.start.bars - 1.0).abs() < 1e-9)
+    });
     assert!(has_outgoing_return, "outgoing returns at bar 1");
 
-    let has_incoming_return = script.phases.iter().any(|ph| matches!(ph,
+    let has_incoming_return = script.phases.iter().any(|ph| {
+        matches!(ph,
         Phase::Fader { deck: DeckRole::Incoming, from, to, span, curve: Curve::Step }
             if (*from - 0.0).abs() < 1e-9 && (*to - 1.0).abs() < 1e-9
-               && (span.start.bars - 1.0).abs() < 1e-9));
+               && (span.start.bars - 1.0).abs() < 1e-9)
+    });
     assert!(has_incoming_return, "incoming hard-cuts in at bar 1");
 }
