@@ -55,6 +55,9 @@ pub enum ForceRecipe {
     FilterKill,
     EchoOut,
     LoopOut,
+    ThreeBandSwap,
+    EchoThrow,
+    HighsFirst,
 }
 
 impl ForceRecipe {
@@ -67,6 +70,9 @@ impl ForceRecipe {
             ForceRecipe::FilterKill => crate::recipe::RecipeChoice::FilterKill,
             ForceRecipe::EchoOut => crate::recipe::RecipeChoice::EchoOut,
             ForceRecipe::LoopOut => crate::recipe::RecipeChoice::LoopOut,
+            ForceRecipe::ThreeBandSwap => crate::recipe::RecipeChoice::ThreeBandSwap,
+            ForceRecipe::EchoThrow => crate::recipe::RecipeChoice::EchoThrow,
+            ForceRecipe::HighsFirst => crate::recipe::RecipeChoice::HighsFirst,
         }
     }
 }
