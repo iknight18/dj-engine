@@ -463,6 +463,102 @@ impl Recipe for LoopOut {
     }
 }
 
+/// `ThreeBandSwap`: staged EQ swap on integer bar positions.
+/// - Incoming highs ramp in over bars [0, L/8].
+/// - Mids cross in the middle quarter (bars [3L/8, 5L/8]).
+/// - Bass swaps on a single downbeat at bar 7L/8.
+/// Equal-power fader across the whole window. For L=16 the bass swap
+/// lands on bar 14; for L=32 on bar 28; for L=8 on bar 7.
+pub struct ThreeBandSwap;
+
+impl Recipe for ThreeBandSwap {
+    fn name(&self) -> &'static str {
+        "three_band_swap"
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = ctx.plan.length_bars as f64;
+        let swap_at = 7.0 * l / 8.0;
+
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, l),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::High,
+                    value_db: -40.0,
+                    at: bar(0.0),
+                },
+                Phase::EqRamp {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::High,
+                    from_db: -40.0,
+                    to_db: 0.0,
+                    span: bars(0.0, l / 8.0),
+                    curve: Curve::Linear,
+                },
+                Phase::EqRamp {
+                    deck: DeckRole::Outgoing,
+                    band: EqBand::Mid,
+                    from_db: 0.0,
+                    to_db: -40.0,
+                    span: bars(3.0 * l / 8.0, 5.0 * l / 8.0),
+                    curve: Curve::Linear,
+                },
+                Phase::EqRamp {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Mid,
+                    from_db: -40.0,
+                    to_db: 0.0,
+                    span: bars(3.0 * l / 8.0, 5.0 * l / 8.0),
+                    curve: Curve::Linear,
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Low,
+                    value_db: -40.0,
+                    at: bar(0.0),
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Outgoing,
+                    band: EqBand::Low,
+                    value_db: -40.0,
+                    at: bar(swap_at),
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Low,
+                    value_db: 0.0,
+                    at: bar(swap_at),
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
