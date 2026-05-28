@@ -349,70 +349,111 @@ impl Deck {
             return Ok(vec![0.0; n_frames * (CHANNELS as usize)]);
         }
 
-        // Drain source queue.
+        // Pre-step: apply any automations at start_cursor so EQ / filter / loop
+        // transitions reflect the current automation state before we decide.
+        self.automations.step(start_cursor, &mut self.state);
+        self.recompute_eq_if_dirty();
+        self.recompute_filter_if_dirty();
+
+        // Loop transitions (boundary-trigger semantics at tick start).
+        if self.state.loop_gate >= 0.5 && !self.loop_buffer.is_locked() {
+            self.loop_buffer.lock();
+        } else if self.state.loop_gate < 0.5 && self.loop_buffer.is_locked() {
+            self.loop_buffer.unlock();
+        }
+        let loop_active = self.loop_buffer.is_locked();
+        let filter_active = self.state.filter_knob.abs() >= FILTER_BYPASS_EPSILON;
+
         let need_samples = n_frames * (CHANNELS as usize);
         let mut out: Vec<f32> = Vec::with_capacity(need_samples);
-        while out.len() < need_samples {
-            let remaining_frames = (need_samples - out.len()) / (CHANNELS as usize);
-            if remaining_frames == 0 {
-                break;
+
+        if loop_active {
+            // Fill `out` from the locked loop buffer; do NOT drain the source.
+            for _ in 0..n_frames {
+                let (l, r) = self.loop_buffer.read();
+                out.push(l);
+                out.push(r);
             }
-            let Some(source) = self.sources.front_mut() else {
-                break;
-            };
-            let chunk = source.pull(remaining_frames).await?;
-            if chunk.is_empty() {
-                self.sources.pop_front();
-                continue;
+        } else {
+            // Drain source queue (existing logic).
+            while out.len() < need_samples {
+                let remaining_frames = (need_samples - out.len()) / (CHANNELS as usize);
+                if remaining_frames == 0 {
+                    break;
+                }
+                let Some(source) = self.sources.front_mut() else {
+                    break;
+                };
+                let chunk = source.pull(remaining_frames).await?;
+                if chunk.is_empty() {
+                    self.sources.pop_front();
+                    continue;
+                }
+                out.extend_from_slice(&chunk);
+                if source.is_exhausted() {
+                    self.sources.pop_front();
+                }
             }
-            out.extend_from_slice(&chunk);
-            if source.is_exhausted() {
-                self.sources.pop_front();
+            if out.len() < need_samples {
+                out.resize(need_samples, 0.0);
             }
-        }
-        if out.len() < need_samples {
-            out.resize(need_samples, 0.0);
         }
 
-        // Per-sample: evaluate automations, apply EQ chain (low -> mid -> high),
-        // then the one-knob filter (skipped when |knob| < epsilon), then the
-        // fader. Coefficients are recomputed lazily inside the loop only when
-        // the corresponding cached value differs from `state`.
+        // Per-sample chain: tick automations, capture into loop buffer (only when
+        // not locked, to avoid self-feedback), EQ → filter → fader → echo. The
+        // echo line is fed by the *pre-fader* post-filter signal so its tail
+        // continues to ring even when the fader closes; the wet output is then
+        // mixed in on top of the dry post-fader signal.
         for f in 0..n_frames {
             let cursor = start_cursor + f as u64;
             self.automations.step(cursor, &mut self.state);
-            self.recompute_eq_if_dirty();
-            self.recompute_filter_if_dirty();
-            let filter_active = self.state.filter_knob.abs() >= FILTER_BYPASS_EPSILON;
+
             let li = f * 2;
             let ri = li + 1;
+            let raw_l = out[li];
+            let raw_r = out[ri];
+
+            // Capture only while not locked (avoid self-feedback into the loop buffer).
+            if !loop_active {
+                self.loop_buffer.write(raw_l, raw_r);
+            }
+
+            // EQ
             let l = self
                 .eq_high_l
-                .process(self.eq_mid_l.process(self.eq_low_l.process(out[li])));
+                .process(self.eq_mid_l.process(self.eq_low_l.process(raw_l)));
             let r = self
                 .eq_high_r
-                .process(self.eq_mid_r.process(self.eq_low_r.process(out[ri])));
-            let l = if filter_active {
-                self.filter_l.process(l)
+                .process(self.eq_mid_r.process(self.eq_low_r.process(raw_r)));
+
+            // Filter (one-knob)
+            let (l, r) = if filter_active {
+                (self.filter_l.process(l), self.filter_r.process(r))
             } else {
-                l
+                (l, r)
             };
-            let r = if filter_active {
-                self.filter_r.process(r)
-            } else {
-                r
-            };
+
+            // Fader (dry path).
             let g = self.state.fader;
-            out[li] = l * g;
-            out[ri] = r * g;
+            let dry_l = l * g;
+            let dry_r = r * g;
+
+            // Echo: pre-fader signal into the line; line's wet output added on top.
+            let (wet_l, wet_r) = self.echo_line.process(l, r);
+            let mix = self.state.echo_mix as f32;
+            out[li] = dry_l + wet_l * mix;
+            out[ri] = dry_r + wet_r * mix;
         }
         // Final step at frame_cursor (after the loop) to install any to-values
         // for automations that finish exactly at frame_cursor.
         self.automations.step(self.frame_cursor, &mut self.state);
 
-        let emitted_seconds = n_frames as f64 / SAMPLE_RATE as f64;
-        self.source_position_seconds += emitted_seconds * self.state.tempo;
-
+        // Advance source position only when NOT in loop mode. Looping freezes the
+        // playhead so the recipe can rejoin from where the lock happened.
+        if !loop_active {
+            let emitted_seconds = n_frames as f64 / SAMPLE_RATE as f64;
+            self.source_position_seconds += emitted_seconds * self.state.tempo;
+        }
         Ok(out)
     }
 

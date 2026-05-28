@@ -328,6 +328,62 @@ async fn cue_resets_echo_and_loop_state() {
 }
 
 #[tokio::test]
+async fn echo_mix_one_produces_audible_tail() {
+    // With echo configured and EchoMix=1, the post-fader output should contain
+    // non-zero energy after the fader hits 0 (i.e., echo tails ring through).
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.set_echo_params(0.05, 0.8); // 50 ms delay, heavy feedback for audible tail
+    d.play();
+    d.test_set_fader(1.0);
+    d.schedule(Automation {
+        target: AutomationTarget::EchoMix,
+        t_start_frames: 0,
+        t_end_frames: 1,
+        from: 1.0,
+        to: 1.0,
+        curve: Curve::Step,
+    });
+    // Pull ~250 ms of dry+wet, then drop the fader to 0 and pull 100 ms more —
+    // expect the second block to have non-trivial RMS (the echo tail).
+    let _ = d.pull(11025).await.unwrap(); // ~250ms
+    d.test_set_fader(0.0);
+    let tail = d.pull(4410).await.unwrap(); // ~100ms
+    let rms = rms_stereo(&tail);
+    // Echo line has the previous 250ms of energy in its buffer; the wet output
+    // should be audibly non-zero even with the dry path silenced.
+    assert!(rms > 0.001, "expected non-trivial tail, got rms {rms}");
+}
+
+#[tokio::test]
+async fn loop_gate_freezes_source_position() {
+    let mut d = Deck::new(DeckId::A);
+    d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
+    d.set_loop_bars(1, 0.5); // 1 bar at 0.5 s/bar = 0.5 s loop
+    d.play();
+    d.test_set_fader(1.0);
+    // Run for ~1 s to fill the capture buffer.
+    let _ = d.pull(44100).await.unwrap();
+    let pos_before_lock = d.source_position_seconds();
+    // Lock the loop.
+    d.schedule(Automation {
+        target: AutomationTarget::LoopGate,
+        t_start_frames: d.frame_cursor(),
+        t_end_frames: d.frame_cursor() + 1,
+        from: 1.0,
+        to: 1.0,
+        curve: Curve::Step,
+    });
+    // Pull another ~1 s — source_position_seconds should NOT advance.
+    let _ = d.pull(44100).await.unwrap();
+    let pos_after_lock = d.source_position_seconds();
+    assert!(
+        (pos_after_lock - pos_before_lock).abs() < 0.01,
+        "source position should freeze; before={pos_before_lock} after={pos_after_lock}"
+    );
+}
+
+#[tokio::test]
 async fn fader_linear_automation_ramps_signal() {
     let mut d = Deck::new(DeckId::A);
     d.cue(fixture_track(), 0.0, 1.0).await.unwrap();
