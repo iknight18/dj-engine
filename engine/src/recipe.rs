@@ -16,9 +16,24 @@ pub struct TransitionContext<'a> {
     pub sample_rate: u32,
 }
 
+/// Static per-deck effect configuration applied by the scheduler after `cue()`
+/// and before `play()`. Fields are `Option` so a recipe can configure only the
+/// effects it actually uses (`EchoOut` configures echo, `LoopOut` configures
+/// the loop buffer). Existing recipes that don't use effects set both
+/// `outgoing_init` and `incoming_init` to `None`.
+#[derive(Clone, Debug, Default)]
+pub struct DeckInitConfig {
+    pub echo_delay_seconds: Option<f64>,
+    pub echo_feedback: Option<f64>,
+    pub loop_bars: Option<usize>,
+    pub loop_bar_seconds: Option<f64>,
+}
+
 pub struct RecipeOutput {
     pub outgoing_automations: Vec<Automation>,
     pub incoming_automations: Vec<Automation>,
+    pub outgoing_init: Option<DeckInitConfig>,
+    pub incoming_init: Option<DeckInitConfig>,
     pub total_duration_frames: u64,
 }
 
@@ -80,6 +95,8 @@ impl Recipe for EqualPowerCrossfade {
         RecipeOutput {
             outgoing_automations: vec![outgoing_fader],
             incoming_automations: vec![incoming_fader, incoming_tempo_step],
+            outgoing_init: None,
+            incoming_init: None,
             total_duration_frames: length_frames,
         }
     }
@@ -126,6 +143,8 @@ impl Recipe for HardCut {
         RecipeOutput {
             outgoing_automations: vec![outgoing_fader_off],
             incoming_automations: vec![incoming_fader_on, incoming_tempo_step],
+            outgoing_init: None,
+            incoming_init: None,
             total_duration_frames: 1,
         }
     }
@@ -203,6 +222,8 @@ impl Recipe for BassSwap {
             return RecipeOutput {
                 outgoing_automations: vec![outgoing_fader],
                 incoming_automations: vec![incoming_fader, incoming_tempo_step],
+                outgoing_init: None,
+                incoming_init: None,
                 total_duration_frames: length_frames,
             };
         }
@@ -249,6 +270,8 @@ impl Recipe for BassSwap {
                 incoming_eq_low_init,
                 incoming_eq_low_release,
             ],
+            outgoing_init: None,
+            incoming_init: None,
             total_duration_frames: length_frames,
         }
     }
@@ -324,6 +347,8 @@ impl Recipe for FilterFade {
                 incoming_filter_init,
                 incoming_filter_sweep,
             ],
+            outgoing_init: None,
+            incoming_init: None,
             total_duration_frames: length_frames,
         }
     }
@@ -387,6 +412,8 @@ impl Recipe for FilterKill {
         RecipeOutput {
             outgoing_automations: vec![outgoing_fader, outgoing_filter_sweep],
             incoming_automations: vec![incoming_fader, incoming_tempo_step],
+            outgoing_init: None,
+            incoming_init: None,
             total_duration_frames: length_frames,
         }
     }

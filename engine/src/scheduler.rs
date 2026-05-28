@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::ffmpeg::SAMPLE_RATE;
 use crate::library::LoadedTrack;
 use crate::mixer::Mixer;
-use crate::recipe::{Recipe, RecipeOutput, TransitionContext};
+use crate::recipe::{DeckInitConfig, Recipe, RecipeOutput, TransitionContext};
 use crate::transition::TransitionPlan;
 
 const CUE_HEADROOM_BARS: f64 = 1.0;
@@ -77,10 +77,23 @@ impl TransitionScheduler {
         let RecipeOutput {
             outgoing_automations,
             incoming_automations,
+            outgoing_init,
+            incoming_init,
             total_duration_frames,
         } = recipe.build(&ctx);
 
-        // 4) Schedule on the respective decks.
+        // 4) Apply static effect parameters from the recipe's DeckInitConfig
+        //    (echo delay/feedback, loop bars). Done after cue/play and before
+        //    scheduling automations so the EchoLine + LoopBuffer are armed by
+        //    the time the first frame of the transition is pulled.
+        if let Some(cfg) = outgoing_init.as_ref() {
+            apply_deck_init(mixer.deck(outgoing_deck), cfg);
+        }
+        if let Some(cfg) = incoming_init.as_ref() {
+            apply_deck_init(mixer.deck(incoming_deck), cfg);
+        }
+
+        // 5) Schedule on the respective decks.
         for a in outgoing_automations {
             mixer.deck(outgoing_deck).schedule(a);
         }
@@ -92,5 +105,14 @@ impl TransitionScheduler {
             end_master_clock_frames: t_start + total_duration_frames,
             recipe_name: recipe.name(),
         })
+    }
+}
+
+fn apply_deck_init(deck: &mut crate::deck::Deck, cfg: &DeckInitConfig) {
+    if let (Some(delay), Some(feedback)) = (cfg.echo_delay_seconds, cfg.echo_feedback) {
+        deck.set_echo_params(delay, feedback);
+    }
+    if let (Some(bars), Some(bar_seconds)) = (cfg.loop_bars, cfg.loop_bar_seconds) {
+        deck.set_loop_bars(bars, bar_seconds);
     }
 }
