@@ -1393,6 +1393,9 @@ pub enum RecipeChoice {
     Drop,
     BreakdownBridge,
     DoubleDrop,
+    VocalOverlay,
+    BassSwapStemAware,
+    BreakdownIntoDrop,
 }
 
 /// Legacy plan-only picker. Kept for tests and as a reference baseline.
@@ -1431,6 +1434,9 @@ pub fn pick_recipe_with_scores(
         RecipeChoice::Drop,
         RecipeChoice::BreakdownBridge,
         RecipeChoice::DoubleDrop,
+        RecipeChoice::VocalOverlay,
+        RecipeChoice::BassSwapStemAware,
+        RecipeChoice::BreakdownIntoDrop,
     ];
     let jitter_range = 0.04;
     let mut scored: Vec<(RecipeChoice, f64)> = Vec::with_capacity(candidates.len());
@@ -1478,6 +1484,9 @@ pub fn pick_recipe(
         RecipeChoice::Drop,
         RecipeChoice::BreakdownBridge,
         RecipeChoice::DoubleDrop,
+        RecipeChoice::VocalOverlay,
+        RecipeChoice::BassSwapStemAware,
+        RecipeChoice::BreakdownIntoDrop,
     ];
 
     let mut best = (RecipeChoice::EqualPower, f64::MIN);
@@ -1518,6 +1527,9 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
         RecipeChoice::Drop => 11,
         RecipeChoice::BreakdownBridge => 12,
         RecipeChoice::DoubleDrop => 13,
+        RecipeChoice::VocalOverlay => 14,
+        RecipeChoice::BassSwapStemAware => 15,
+        RecipeChoice::BreakdownIntoDrop => 16,
     }
 }
 
@@ -1539,6 +1551,9 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
         RecipeChoice::Drop,
         RecipeChoice::BreakdownBridge,
         RecipeChoice::DoubleDrop,
+        RecipeChoice::VocalOverlay,
+        RecipeChoice::BassSwapStemAware,
+        RecipeChoice::BreakdownIntoDrop,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
         h = h
@@ -1719,6 +1734,46 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 && inputs.phrase_aligned;
             if jackpot {
                 0.80
+            } else {
+                0.05
+            }
+        }
+        RecipeChoice::VocalOverlay => {
+            // The planner only promotes to length_bars >= 16 when bpm_delta
+            // <= 0.02, so requiring length_bars >= 16 here proxies the
+            // ratio ~= 1.0 gate from the spec.
+            let identical_bpm_band =
+                inputs.energy_delta.abs() < 0.20 && inputs.stems_available;
+            let strong = identical_bpm_band && inputs.phrase_aligned && inputs.length_bars >= 16;
+            if strong {
+                0.85
+            } else if identical_bpm_band {
+                0.30
+            } else {
+                0.05
+            }
+        }
+        RecipeChoice::BassSwapStemAware => {
+            let strong = inputs.stems_available
+                && inputs.phrase_aligned
+                && inputs.length_bars >= 16
+                && (inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5);
+            if strong {
+                0.92
+            } else if inputs.stems_available {
+                0.30
+            } else {
+                0.05
+            }
+        }
+        RecipeChoice::BreakdownIntoDrop => {
+            let strong = inputs.stems_available
+                && inputs.phrase_aligned
+                && inputs.energy_delta > 0.10;
+            if strong {
+                0.80
+            } else if inputs.stems_available {
+                0.20
             } else {
                 0.05
             }

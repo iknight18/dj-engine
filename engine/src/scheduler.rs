@@ -35,9 +35,12 @@ impl TransitionScheduler {
         let cue_headroom_seconds = CUE_HEADROOM_BARS * bar_seconds;
         let cue_start = (plan.incoming_crossfade_start_seconds - cue_headroom_seconds).max(0.0);
 
-        // 1) Cue the incoming deck at the BPM-match tempo so its decoder
-        //    actually time-stretches and its source-position tracking stays
-        //    consistent with the playback rate.
+        // 1) Cue the incoming deck. Stem-aware recipes (requires_stems == true)
+        //    use `cue_stems` so the per-stem fader automations have actual
+        //    audio to scale. The cue is performed at the BPM-match tempo so
+        //    its source-position tracking stays consistent with the playback
+        //    rate.
+        let stems_mode = recipe.requires_stems();
         tracing::info!(
             deck = ?incoming_deck,
             track = %incoming
@@ -49,12 +52,20 @@ impl TransitionScheduler {
             cue_source_seconds = cue_start,
             tempo = ratio,
             cue_headroom_seconds,
+            stems_mode,
             "scheduler cueing incoming"
         );
-        mixer
-            .deck(incoming_deck)
-            .cue(incoming.clone(), cue_start, ratio)
-            .await?;
+        if stems_mode {
+            mixer
+                .deck(incoming_deck)
+                .cue_stems(incoming.clone(), cue_start, ratio)
+                .await?;
+        } else {
+            mixer
+                .deck(incoming_deck)
+                .cue(incoming.clone(), cue_start, ratio)
+                .await?;
+        }
         mixer.deck(incoming_deck).play();
 
         // 2) Compute t_start: master_clock + (outgoing_outro_start - outgoing's

@@ -61,6 +61,9 @@ pub enum ForceRecipe {
     Drop,
     BreakdownBridge,
     DoubleDrop,
+    VocalOverlay,
+    BassSwapStemAware,
+    BreakdownIntoDrop,
 }
 
 impl ForceRecipe {
@@ -79,6 +82,9 @@ impl ForceRecipe {
             ForceRecipe::Drop => crate::recipe::RecipeChoice::Drop,
             ForceRecipe::BreakdownBridge => crate::recipe::RecipeChoice::BreakdownBridge,
             ForceRecipe::DoubleDrop => crate::recipe::RecipeChoice::DoubleDrop,
+            ForceRecipe::VocalOverlay => crate::recipe::RecipeChoice::VocalOverlay,
+            ForceRecipe::BassSwapStemAware => crate::recipe::RecipeChoice::BassSwapStemAware,
+            ForceRecipe::BreakdownIntoDrop => crate::recipe::RecipeChoice::BreakdownIntoDrop,
         }
     }
 }

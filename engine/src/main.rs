@@ -227,6 +227,9 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::Drop => "drop",
             dj_engine::recipe::RecipeChoice::BreakdownBridge => "breakdown_bridge",
             dj_engine::recipe::RecipeChoice::DoubleDrop => "double_drop",
+            dj_engine::recipe::RecipeChoice::VocalOverlay => "vocal_overlay",
+            dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
+            dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
         };
         let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
@@ -413,6 +416,42 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            dj_engine::recipe::RecipeChoice::VocalOverlay => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::VocalOverlay,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::BassSwapStemAware => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::BassSwapStemAware,
+                )
+                .await?
+            }
+            dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::BreakdownIntoDrop,
+                )
+                .await?
+            }
         };
 
         // Tick through the transition.
@@ -486,6 +525,9 @@ fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
         dj_engine::recipe::RecipeChoice::Drop => "drop",
         dj_engine::recipe::RecipeChoice::BreakdownBridge => "breakdown_bridge",
         dj_engine::recipe::RecipeChoice::DoubleDrop => "double_drop",
+        dj_engine::recipe::RecipeChoice::VocalOverlay => "vocal_overlay",
+        dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
+        dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
     }
 }
 
