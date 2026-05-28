@@ -779,6 +779,214 @@ impl Recipe for HighsFirst {
     }
 }
 
+/// `Drop`: incoming plays for 4 bars under a high-pass filter (treble-only
+/// build-up), then hard-cuts to full bandwidth on the next downbeat while
+/// outgoing fades to silence. The HP-filter sweeps from 0.85 → 0.55 over the
+/// build, giving the listener a "riser" — gradually revealing the mid-band —
+/// followed by a hard release. Outgoing plays untouched until bar 4.
+pub struct Drop;
+
+impl Recipe for Drop {
+    fn name(&self) -> &'static str {
+        "drop"
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = 4.0;
+
+        TransitionScript {
+            length_bars: 4,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(l, l),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.7,
+                    to: 0.7,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.7,
+                    to: 1.0,
+                    span: bars(l, l),
+                    curve: Curve::Step,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 0.85,
+                    to: 0.85,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 0.85,
+                    to: 0.55,
+                    span: bars(0.0, l),
+                    curve: Curve::Linear,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(l, l),
+                    curve: Curve::Step,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
+/// `BreakdownBridge`: outgoing's mids + bass are killed over the first 3 bars
+/// (the breakdown — only outgoing's highs ring through), then at bar 4 the
+/// outgoing hard-cuts to silence and the incoming hard-cuts in at full volume.
+/// The contrast between thin-outgoing and full-incoming is the gesture.
+pub struct BreakdownBridge;
+
+impl Recipe for BreakdownBridge {
+    fn name(&self) -> &'static str {
+        "breakdown_bridge"
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = 4.0;
+
+        TransitionScript {
+            length_bars: 4,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::EqRamp {
+                    deck: DeckRole::Outgoing,
+                    band: EqBand::Low,
+                    from_db: 0.0,
+                    to_db: -40.0,
+                    span: bars(0.0, 3.0),
+                    curve: Curve::Linear,
+                },
+                Phase::EqRamp {
+                    deck: DeckRole::Outgoing,
+                    band: EqBand::Mid,
+                    from_db: 0.0,
+                    to_db: -40.0,
+                    span: bars(0.0, 3.0),
+                    curve: Curve::Linear,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(l, l),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(l, l),
+                    curve: Curve::Step,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
+/// `DoubleDrop`: outgoing fades to silence over half a bar; both decks held
+/// silent for half a bar (anticipation gap); both hard-cut to full volume on
+/// the next downbeat; both play together for 1 bar; outgoing hard-cuts out
+/// on bar 2 leaving incoming as the new master.
+pub struct DoubleDrop;
+
+impl Recipe for DoubleDrop {
+    fn name(&self) -> &'static str {
+        "double_drop"
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let l = 2.0;
+
+        TransitionScript {
+            length_bars: 2,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.5),
+                    curve: Curve::Linear,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(1.0, 1.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(l, l),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(1.0, 1.0),
+                    curve: Curve::Step,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
@@ -791,6 +999,9 @@ pub enum RecipeChoice {
     ThreeBandSwap,
     EchoThrow,
     HighsFirst,
+    Drop,
+    BreakdownBridge,
+    DoubleDrop,
 }
 
 /// Legacy plan-only picker. Kept for tests and as a reference baseline.
