@@ -996,6 +996,130 @@ impl Recipe for DoubleDrop {
     }
 }
 
+/// `VocalOverlay`: 16-bar layered transition.
+/// - Bars [0, 4]: incoming's vocals stem fades in over outgoing's full mix.
+///   Incoming non-vocal stems are kept muted; the mixed fader stays at 1.0
+///   so the audible signal is purely vocals.
+/// - Bars [4, 12]: hold — outgoing plays underneath the incoming vocal.
+/// - Bars [12, 16]: incoming's drums/bass/other ramp in linearly while
+///   outgoing equal-power-fades out.
+///
+/// Requires stems on both decks (`requires_stems = true`).
+pub struct VocalOverlay;
+
+impl Recipe for VocalOverlay {
+    fn name(&self) -> &'static str {
+        "vocal_overlay"
+    }
+
+    fn requires_stems(&self) -> bool {
+        true
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        use crate::deck::StemKind;
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
+        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+
+        TransitionScript {
+            length_bars: 16,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                // Outgoing equal-power fades out over the last 4 bars.
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(12.0, 16.0),
+                    curve: Curve::EqualPowerOut,
+                },
+                // Incoming mixed fader stays at 1.0 from bar 0 — per-stem faders
+                // gate everything below.
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                // Mute incoming non-vocal stems at bar 0 (Step at t0).
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Drums,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Bass,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Other,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Vocals,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                // Bars [0, 4]: incoming vocals fade in.
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Vocals,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, 4.0),
+                    curve: Curve::Linear,
+                },
+                // Bars [12, 16]: incoming non-vocal stems fade in.
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Drums,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(12.0, 16.0),
+                    curve: Curve::Linear,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Bass,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(12.0, 16.0),
+                    curve: Curve::Linear,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Other,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(12.0, 16.0),
+                    curve: Curve::Linear,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
@@ -1179,6 +1303,9 @@ pub struct PairScoreInputs {
     pub incoming_bass: f64,
     /// True iff BOTH tracks are marked `is_phrase_aligned`.
     pub phrase_aligned: bool,
+    /// True iff BOTH sidecars carry a `stems` block (drum/bass/vocal density,
+    /// vocal segments). Stem-aware recipes refuse to fire without this.
+    pub stems_available: bool,
 }
 
 impl PairScoreInputs {
@@ -1202,6 +1329,8 @@ impl PairScoreInputs {
             .map(|b| b.bass)
             .unwrap_or(0.5);
         let phrase_aligned = outgoing.sidecar.phrase_aligned() && incoming.sidecar.phrase_aligned();
+        let stems_available =
+            outgoing.sidecar.stems.is_some() && incoming.sidecar.stems.is_some();
         Self {
             length_bars: plan.length_bars,
             use_eq_swap: plan.use_eq_swap,
@@ -1209,6 +1338,7 @@ impl PairScoreInputs {
             outgoing_bass,
             incoming_bass,
             phrase_aligned,
+            stems_available,
         }
     }
 }

@@ -561,6 +561,7 @@ fn inputs_default() -> PairScoreInputs {
         outgoing_bass: 0.5,
         incoming_bass: 0.5,
         phrase_aligned: true,
+        stems_available: false,
     }
 }
 
@@ -756,6 +757,7 @@ fn score_three_band_swap_both_heavy_phrase_aligned_long() {
         outgoing_bass: 0.7,
         incoming_bass: 0.6,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.90).abs() < 1e-9);
 }
@@ -770,6 +772,7 @@ fn score_three_band_swap_both_heavy_short_window() {
         outgoing_bass: 0.7,
         incoming_bass: 0.6,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.70).abs() < 1e-9);
 }
@@ -784,6 +787,7 @@ fn score_echo_throw_smooth_long() {
         outgoing_bass: 0.4,
         incoming_bass: 0.4,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::EchoThrow, &inputs) - 0.65).abs() < 1e-9);
 }
@@ -798,6 +802,7 @@ fn score_highs_first_big_ramp_long() {
         outgoing_bass: 0.4,
         incoming_bass: 0.4,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.85).abs() < 1e-9);
 }
@@ -812,6 +817,7 @@ fn score_highs_first_no_ramp_low_score() {
         outgoing_bass: 0.4,
         incoming_bass: 0.4,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.10).abs() < 1e-9);
 }
@@ -1026,6 +1032,7 @@ fn score_drop_big_ramp_up() {
         outgoing_bass: 0.5,
         incoming_bass: 0.5,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::Drop, &inputs) - 0.75).abs() < 1e-9);
 }
@@ -1040,6 +1047,7 @@ fn score_breakdown_bridge_winddown() {
         outgoing_bass: 0.5,
         incoming_bass: 0.5,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::BreakdownBridge, &inputs) - 0.70).abs() < 1e-9);
 }
@@ -1054,6 +1062,7 @@ fn score_double_drop_jackpot() {
         outgoing_bass: 0.5,
         incoming_bass: 0.5,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::DoubleDrop, &inputs) - 0.80).abs() < 1e-9);
 }
@@ -1068,6 +1077,7 @@ fn score_double_drop_misses_when_energy_too_far() {
         outgoing_bass: 0.5,
         incoming_bass: 0.5,
         phrase_aligned: true,
+        stems_available: false,
     };
     assert!((score_recipe(RecipeChoice::DoubleDrop, &inputs) - 0.05).abs() < 1e-9);
 }
