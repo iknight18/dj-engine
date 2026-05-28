@@ -35,12 +35,15 @@ impl TransitionScheduler {
         let cue_headroom_seconds = CUE_HEADROOM_BARS * bar_seconds;
         let cue_start = (plan.incoming_crossfade_start_seconds - cue_headroom_seconds).max(0.0);
 
-        // 1) Cue the incoming deck. Stem-aware recipes (requires_stems == true)
-        //    use `cue_stems` so the per-stem fader automations have actual
-        //    audio to scale. The cue is performed at the BPM-match tempo so
-        //    its source-position tracking stays consistent with the playback
-        //    rate.
-        let stems_mode = recipe.requires_stems();
+        // 1) Cue the incoming deck. Eager stems mode: try cue_stems whenever
+        //    the sidecar has a stems block, regardless of whether THIS recipe
+        //    is stem-aware. This way the incoming track becomes available for
+        //    stem manipulation when it later becomes the outgoing deck in a
+        //    future stem-aware transition. Stem-aware recipes that explicitly
+        //    require stems still demand the cue succeeds; non-stem recipes
+        //    tolerate a fallback to mixed-source cue.
+        let recipe_requires_stems = recipe.requires_stems();
+        let try_stems = incoming.sidecar.stems.is_some();
         tracing::info!(
             deck = ?incoming_deck,
             track = %incoming
@@ -52,20 +55,47 @@ impl TransitionScheduler {
             cue_source_seconds = cue_start,
             tempo = ratio,
             cue_headroom_seconds,
-            stems_mode,
+            try_stems,
+            recipe_requires_stems,
             "scheduler cueing incoming"
         );
-        if stems_mode {
-            mixer
+        let mut cued_in_stems_mode = false;
+        if try_stems {
+            match mixer
                 .deck(incoming_deck)
                 .cue_stems(incoming.clone(), cue_start, ratio)
-                .await?;
+                .await
+            {
+                Ok(()) => {
+                    cued_in_stems_mode = true;
+                }
+                Err(e) => {
+                    if recipe_requires_stems {
+                        return Err(e);
+                    }
+                    tracing::warn!(error = %e, "cue_stems failed; falling back to mixed-source cue");
+                    mixer
+                        .deck(incoming_deck)
+                        .cue(incoming.clone(), cue_start, ratio)
+                        .await?;
+                }
+            }
         } else {
+            if recipe_requires_stems {
+                return Err(crate::error::EngineError::StemsUnavailable(
+                    incoming.sidecar_path.clone(),
+                ));
+            }
             mixer
                 .deck(incoming_deck)
                 .cue(incoming.clone(), cue_start, ratio)
                 .await?;
         }
+        tracing::info!(
+            deck = ?incoming_deck,
+            cued_in_stems_mode,
+            "scheduler cue complete"
+        );
         mixer.deck(incoming_deck).play();
 
         // 2) Compute t_start: master_clock + (outgoing_outro_start - outgoing's

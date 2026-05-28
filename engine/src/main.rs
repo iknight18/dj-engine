@@ -80,11 +80,24 @@ async fn main() -> anyhow::Result<()> {
     info!(seed = %seed.sidecar.source_path, "seed track");
 
     // Mixer with two decks. Cue + play the seed on Deck A.
+    // Eager stems mode: try cue_stems first so stem-aware recipes on later
+    // transitions can manipulate this track's stems when it becomes outgoing.
+    // Falls back to mixed-source cue when stem files are unavailable.
     let mut mixer = dj_engine::mixer::Mixer::new(producer);
     {
         let cue_in = seed.sidecar.cue_in_seconds.unwrap_or(0.0);
         let deck = mixer.deck(dj_engine::deck::DeckId::A);
-        deck.cue(seed.clone(), cue_in, 1.0).await?;
+        if seed.sidecar.stems.is_some() {
+            match deck.cue_stems(seed.clone(), cue_in, 1.0).await {
+                Ok(()) => info!(track = %short_name(&seed.sidecar.source_path), "seed cued in stems mode"),
+                Err(e) => {
+                    warn!(error = %e, "cue_stems failed for seed; falling back to mixed");
+                    deck.cue(seed.clone(), cue_in, 1.0).await?;
+                }
+            }
+        } else {
+            deck.cue(seed.clone(), cue_in, 1.0).await?;
+        }
         deck.play();
         // v1: poke fader to unity directly so the seed audio is audible from
         // tick 0. Cleaner alternative: schedule a Fader Step 0->1 at frame 0
