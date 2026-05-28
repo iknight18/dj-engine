@@ -70,12 +70,17 @@ from dj_analyze.detect_bpm import (
 
 def test_bpm_from_beats_120_bpm() -> None:
     # 4 beats at 0.5-second intervals → 120 BPM.
+    # librosa.frames_to_time uses hop_length=512 by default, so frame indices must be
+    # in those units: 0.5 s * 22050 / 512 ≈ 21.5 → use multiples of 21 frames.
     sr = 22050
-    beat_times = np.array([0.0, 0.5, 1.0, 1.5])
-    beat_frames = (beat_times * sr).astype(int)
+    hop_length = 512
+    # Exact: 0.5 s / (hop_length / sr) = 0.5 * 22050 / 512 ≈ 21.533 frames
+    # Use float-rounded to nearest integer for minimal quantization error.
+    frames_per_beat = round(0.5 * sr / hop_length)  # = 22
+    beat_frames = np.array([0, frames_per_beat, frames_per_beat * 2, frames_per_beat * 3])
     bpm = bpm_from_beats(beat_frames, sr=sr)
     assert bpm is not None
-    assert abs(bpm - 120.0) < 0.5
+    assert abs(bpm - 120.0) < 3.0  # allow for integer quantization in frame conversion
 
 
 def test_bpm_from_beats_returns_none_for_empty() -> None:
@@ -127,7 +132,7 @@ def test_resolve_octave_disagreement_picks_closer_to_120() -> None:
     # 95 distance from 120 = 25; 145 distance from 120 = 25 — tie.
     # Whichever is picked must still be one of the two.
     result = resolve_octave(95.0, 145.0)
-    assert result in pytest.approx((95.0, 145.0), abs=0.5)
+    assert abs(result - 95.0) < 0.5 or abs(result - 145.0) < 0.5
 
 
 def test_resolve_octave_handles_zero_primary() -> None:
