@@ -7,6 +7,7 @@ pub mod camelot;
 pub mod config;
 pub mod crossfade;
 pub mod deck;
+pub mod effects;
 pub mod energy_avg;
 pub mod eq;
 pub mod error;
