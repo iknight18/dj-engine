@@ -388,11 +388,12 @@ async fn loop_gate_freezes_source_position() {
 fn stems_dir_for_resolves_sibling_stems_directory() {
     use dj_engine::deck::stems_dir_for;
 
-    // Build a temp filesystem layout: analyzed/foo.mp3.json + analyzed-stems/foo.mp3/{drums,bass,vocals,other}.mp3
+    // Build a temp filesystem layout: analyzed/foo.mp3.json + analyzed-stems/foo/{drums,bass,vocals,other}.mp3.
+    // stems_dir_for strips both ".json" and ".mp3" from the sidecar basename to find the per-track stems dir.
     let tmp = std::env::temp_dir().join(format!("djengine-stems-dir-test-{}", std::process::id()));
     let analyzed = tmp.join("analyzed");
     let stems_root = tmp.join("analyzed-stems");
-    let track_dir = stems_root.join("foo.mp3");
+    let track_dir = stems_root.join("foo");
     std::fs::create_dir_all(&analyzed).unwrap();
     std::fs::create_dir_all(&track_dir).unwrap();
     let sidecar_path = analyzed.join("foo.mp3.json");

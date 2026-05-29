@@ -78,7 +78,7 @@ fn three_band_swap_16_bar_emits_expected_phase_shape() {
     assert_eq!(script.length_bars, 16);
     assert!(script.outgoing_init.is_none());
     assert!(script.incoming_init.is_none());
-    assert_eq!(script.phases.len(), 10, "phase count");
+    assert_eq!(script.phases.len(), 11, "phase count");
 
     let has_high_init = script.phases.iter().any(|p| {
         matches!(p,
@@ -87,13 +87,21 @@ fn three_band_swap_16_bar_emits_expected_phase_shape() {
     });
     assert!(has_high_init, "highs init step at bar 0");
 
-    let has_mids_outgoing = script.phases.iter().any(|p| {
+    // Mids cross is now two Steps on downbeats (was a Linear ramp over [6, 10]):
+    // outgoing mids kill at bar L/2 = 8, incoming mids release at bar L/2 + 1 = 9.
+    let has_mids_outgoing_step = script.phases.iter().any(|p| {
         matches!(p,
-        Phase::EqRamp { deck: DeckRole::Outgoing, band: EqBand::Mid, from_db, to_db, span, .. }
-            if (*from_db - 0.0).abs() < 1e-9 && (*to_db - (-40.0)).abs() < 1e-9
-               && (span.start.bars - 6.0).abs() < 1e-9 && (span.end.bars - 10.0).abs() < 1e-9)
+        Phase::EqStep { deck: DeckRole::Outgoing, band: EqBand::Mid, value_db, at }
+            if (*value_db - (-40.0)).abs() < 1e-9 && (at.bars - 8.0).abs() < 1e-9)
     });
-    assert!(has_mids_outgoing, "outgoing mids ramp on [6, 10]");
+    assert!(has_mids_outgoing_step, "outgoing mids Step kill at bar 8");
+
+    let has_mids_incoming_release = script.phases.iter().any(|p| {
+        matches!(p,
+        Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::Mid, value_db, at }
+            if value_db.abs() < 1e-9 && (at.bars - 9.0).abs() < 1e-9)
+    });
+    assert!(has_mids_incoming_release, "incoming mids Step release at bar 9");
 
     let has_bass_swap_outgoing = script.phases.iter().any(|p| {
         matches!(p,
@@ -217,13 +225,13 @@ fn highs_first_16_bar_bass_swap_at_bar_12() {
     });
     assert!(has_bass_swap_out && has_bass_swap_in, "bass swap at bar 12");
 
-    let has_mids_ramp = script.phases.iter().any(|p| {
+    // Mids reveal is now a Step on bar L/4 = 4 (was a Linear ramp over [4, 8]).
+    let has_mids_step = script.phases.iter().any(|p| {
         matches!(p,
-        Phase::EqRamp { deck: DeckRole::Incoming, band: EqBand::Mid, from_db, to_db, span, .. }
-            if (*from_db - (-40.0)).abs() < 1e-9 && (*to_db - 0.0).abs() < 1e-9
-               && (span.start.bars - 4.0).abs() < 1e-9 && (span.end.bars - 8.0).abs() < 1e-9)
+        Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::Mid, value_db, at }
+            if value_db.abs() < 1e-9 && (at.bars - 4.0).abs() < 1e-9)
     });
-    assert!(has_mids_ramp, "mids ramp on [4, 8]");
+    assert!(has_mids_step, "incoming mids Step release at bar 4");
 }
 
 #[test]

@@ -279,37 +279,54 @@ fn ctx_for<'a>(
 }
 
 #[test]
-fn bass_swap_default_emits_fader_plus_eq_low_automations() {
+fn bass_swap_default_step_swap_on_midpoint_downbeat() {
     let out_track = track_with_bass(120.0, 0.4);
     let in_track = track_with_bass(120.0, 0.4);
     let plan = standard_plan();
     let ctx = ctx_for(&out_track, &in_track, &plan);
     let r = BassSwap.build(&ctx);
-    assert_eq!(r.outgoing_automations.len(), 2);
-    assert!(r
-        .outgoing_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::Fader && a.curve == Curve::EqualPowerOut));
-    assert!(r
-        .outgoing_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Linear && a.to == -40.0));
+    let bar_seconds = (60.0_f64 / 120.0) * 4.0;
+    let kill_bar = plan.length_bars as f64 / 2.0;
+    let kill_frame = (kill_bar * bar_seconds * SR as f64) as u64;
 
+    // Outgoing: Fader EqualPowerOut starting at kill_bar + EqLow Step at kill_bar.
+    assert_eq!(r.outgoing_automations.len(), 2);
+    let out_fader = r
+        .outgoing_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::Fader)
+        .expect("outgoing fader");
+    assert_eq!(out_fader.curve, Curve::EqualPowerOut);
+    assert!((out_fader.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
+    let out_eqlow = r
+        .outgoing_automations
+        .iter()
+        .find(|a| a.target == AutomationTarget::EqLow)
+        .expect("outgoing eqlow");
+    assert_eq!(out_eqlow.curve, Curve::Step);
+    assert_eq!(out_eqlow.to, -40.0);
+    assert!((out_eqlow.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
+
+    // Incoming: Fader Step at bar 0 + Tempo Step + two EqLow Steps (init at 0, release at kill_bar).
     assert_eq!(r.incoming_automations.len(), 4);
-    let in_step = r
+    let in_eqlow_steps: Vec<_> = r
         .incoming_automations
         .iter()
-        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Step)
+        .filter(|a| a.target == AutomationTarget::EqLow)
+        .collect();
+    assert_eq!(in_eqlow_steps.len(), 2);
+    let init = in_eqlow_steps
+        .iter()
+        .find(|a| (a.to - (-40.0)).abs() < 1e-9)
         .expect("incoming init kill");
-    assert_eq!(in_step.from, -40.0);
-    assert_eq!(in_step.to, -40.0);
-    let in_release = r
-        .incoming_automations
+    let release = in_eqlow_steps
         .iter()
-        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Linear)
+        .find(|a| a.to.abs() < 1e-9)
         .expect("incoming release");
-    assert_eq!(in_release.from, -40.0);
-    assert_eq!(in_release.to, 0.0);
+    assert_eq!(init.curve, Curve::Step);
+    assert_eq!(release.curve, Curve::Step);
+    assert!((init.t_start_frames as f64).abs() < 10.0);
+    assert!((release.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
 }
 
 #[test]
@@ -334,34 +351,29 @@ fn bass_swap_bass_light_pair_skips_eq() {
 }
 
 #[test]
-fn bass_swap_bass_heavy_pair_uses_wider_window() {
+fn bass_swap_bass_heavy_pair_also_steps_at_midpoint() {
+    // The new BassSwap uses the same midpoint-downbeat step regardless of bass
+    // heaviness; the old wider-window-for-bass-heavy logic is gone. This test
+    // just asserts the bass-heavy case still produces a Step swap at L/2.
     let out_track = track_with_bass(120.0, 0.7);
     let in_track = track_with_bass(120.0, 0.8);
     let plan = standard_plan();
     let ctx = ctx_for(&out_track, &in_track, &plan);
     let r = BassSwap.build(&ctx);
     let bar_seconds = (60.0_f64 / 120.0) * 4.0;
-    let l_frames = (plan.length_bars as f64 * bar_seconds * SR as f64) as u64;
-    let out_kill = r
+    let kill_frame = (plan.length_bars as f64 / 2.0 * bar_seconds * SR as f64) as u64;
+    let out_eqlow = r
         .outgoing_automations
         .iter()
-        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Linear)
-        .expect("outgoing kill");
-    let in_release = r
-        .incoming_automations
-        .iter()
-        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Linear)
-        .expect("incoming release");
-    // Wide window: outgoing kill [0.30 L .. 0.48 L], incoming release [0.52 L .. 0.70 L].
-    assert!((out_kill.t_start_frames as f64 - 0.30 * l_frames as f64).abs() < 10.0);
-    assert!((out_kill.t_end_frames as f64 - 0.48 * l_frames as f64).abs() < 10.0);
-    assert!((in_release.t_start_frames as f64 - 0.52 * l_frames as f64).abs() < 10.0);
-    assert!((in_release.t_end_frames as f64 - 0.70 * l_frames as f64).abs() < 10.0);
+        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Step)
+        .expect("outgoing kill Step");
+    assert!((out_eqlow.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
+    assert_eq!(out_eqlow.to, -40.0);
 }
 
 #[test]
-fn bass_swap_missing_band_energy_falls_back_to_default() {
-    // band_energy_means = None on either track → treat as 0.5 → default window.
+fn bass_swap_missing_band_energy_treated_as_default() {
+    // band_energy_means = None on either track → treat as 0.5 → step swap (not bass-light fallback).
     let mut out_track = track_with_bass(120.0, 0.4);
     out_track.sidecar.band_energy_means = None;
     let mut in_track = track_with_bass(120.0, 0.4);
@@ -369,17 +381,12 @@ fn bass_swap_missing_band_energy_falls_back_to_default() {
     let plan = standard_plan();
     let ctx = ctx_for(&out_track, &in_track, &plan);
     let r = BassSwap.build(&ctx);
-    // Has EqLow automations (not skipped) and uses default window.
-    let bar_seconds = (60.0_f64 / 120.0) * 4.0;
-    let l_frames = (plan.length_bars as f64 * bar_seconds * SR as f64) as u64;
-    let out_kill = r
+    // Has EqLow Step automations (not the bass-light fallback that would have no EqLow at all).
+    let has_step_swap = r
         .outgoing_automations
         .iter()
-        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Linear)
-        .expect("outgoing kill");
-    // Default window: outgoing kill [0.35 L .. 0.48 L].
-    assert!((out_kill.t_start_frames as f64 - 0.35 * l_frames as f64).abs() < 10.0);
-    assert!((out_kill.t_end_frames as f64 - 0.48 * l_frames as f64).abs() < 10.0);
+        .any(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Step);
+    assert!(has_step_swap, "missing band_energy treated as default → step swap fires");
 }
 
 #[test]

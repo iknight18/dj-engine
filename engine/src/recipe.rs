@@ -232,27 +232,6 @@ impl Recipe for BassSwap {
         let ratio = outgoing_bpm / incoming_bpm.max(1.0);
         let l = ctx.plan.length_bars as f64;
 
-        let mut phases = vec![
-            Phase::Fader {
-                deck: DeckRole::Outgoing,
-                from: 1.0,
-                to: 0.0,
-                span: bars(0.0, l),
-                curve: Curve::EqualPowerOut,
-            },
-            Phase::Fader {
-                deck: DeckRole::Incoming,
-                from: 0.0,
-                to: 1.0,
-                span: bars(0.0, l),
-                curve: Curve::EqualPowerIn,
-            },
-            Phase::TempoAlign {
-                deck: DeckRole::Incoming,
-                ratio,
-            },
-        ];
-
         let outgoing_bass = ctx
             .outgoing
             .sidecar
@@ -268,48 +247,92 @@ impl Recipe for BassSwap {
             .map(|b| b.bass)
             .unwrap_or(0.5);
 
+        // Both bass-light → no bass-swap gesture needed; plain equal-power
+        // crossfade keeps the recipe usable on tracks with little low end.
         if outgoing_bass < 0.3 && incoming_bass < 0.3 {
             return TransitionScript {
                 length_bars: ctx.plan.length_bars,
-                phases,
+                phases: vec![
+                    Phase::TempoAlign {
+                        deck: DeckRole::Incoming,
+                        ratio,
+                    },
+                    Phase::Fader {
+                        deck: DeckRole::Outgoing,
+                        from: 1.0,
+                        to: 0.0,
+                        span: bars(0.0, l),
+                        curve: Curve::EqualPowerOut,
+                    },
+                    Phase::Fader {
+                        deck: DeckRole::Incoming,
+                        from: 0.0,
+                        to: 1.0,
+                        span: bars(0.0, l),
+                        curve: Curve::EqualPowerIn,
+                    },
+                ],
                 outgoing_init: None,
                 incoming_init: None,
             };
         }
 
-        let (kill_start, kill_end, rel_start, rel_end) =
-            if outgoing_bass > 0.5 && incoming_bass > 0.5 {
-                (0.30, 0.48, 0.52, 0.70)
-            } else {
-                (0.35, 0.48, 0.52, 0.65)
-            };
-
-        phases.push(Phase::EqStep {
-            deck: DeckRole::Incoming,
-            band: EqBand::Low,
-            value_db: -40.0,
-            at: bar(0.0),
-        });
-        phases.push(Phase::EqRamp {
-            deck: DeckRole::Outgoing,
-            band: EqBand::Low,
-            from_db: 0.0,
-            to_db: -40.0,
-            span: bars(kill_start * l, kill_end * l),
-            curve: Curve::Linear,
-        });
-        phases.push(Phase::EqRamp {
-            deck: DeckRole::Incoming,
-            band: EqBand::Low,
-            from_db: -40.0,
-            to_db: 0.0,
-            span: bars(rel_start * l, rel_end * l),
-            curve: Curve::Linear,
-        });
+        // Real-DJ bass swap. Both decks playing at full volume for the first
+        // half, incoming bass-killed via EqLow. At the midpoint downbeat: a
+        // simultaneous Step swap — outgoing bass dies, incoming bass enters,
+        // listener feels the gesture in a single beat. Then outgoing fades
+        // out equal-power over the second half.
+        let kill_bar = (l / 2.0).floor(); // L=8 → 4, L=16 → 8, L=32 → 16 — all downbeats
 
         TransitionScript {
             length_bars: ctx.plan.length_bars,
-            phases,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                // Incoming Step to full volume at bar 0. Its bass is killed
+                // via EqLow Step on the next phase, so listener hears the
+                // mid+high content of incoming layered over outgoing's full
+                // mix during the first half.
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Low,
+                    value_db: -40.0,
+                    at: bar(0.0),
+                },
+                // THE MOMENT: simultaneous Step on the midpoint downbeat.
+                Phase::EqStep {
+                    deck: DeckRole::Outgoing,
+                    band: EqBand::Low,
+                    value_db: -40.0,
+                    at: bar(kill_bar),
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Low,
+                    value_db: 0.0,
+                    at: bar(kill_bar),
+                },
+                // Outgoing fader: held at 1.0 by default until kill_bar
+                // (no automation needed — deck arrives at this transition
+                // with fader already at 1.0 from playing as master). Then
+                // equal-power-out over the second half.
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(kill_bar, l),
+                    curve: Curve::EqualPowerOut,
+                },
+            ],
             outgoing_init: None,
             incoming_init: None,
         }
@@ -600,21 +623,27 @@ impl Recipe for ThreeBandSwap {
                     span: bars(0.0, l / 8.0),
                     curve: Curve::Linear,
                 },
-                Phase::EqRamp {
+                // Mids swap on integer downbeats: outgoing mids die at bar L/2,
+                // incoming mids enter at bar L/2 + 1. The 1-bar gap creates a
+                // brief "thin" moment between the two — a deliberate beat with
+                // mostly highs and bass, then incoming mids re-fill the sound.
+                Phase::EqStep {
                     deck: DeckRole::Outgoing,
                     band: EqBand::Mid,
-                    from_db: 0.0,
-                    to_db: -40.0,
-                    span: bars(3.0 * l / 8.0, 5.0 * l / 8.0),
-                    curve: Curve::Linear,
+                    value_db: -40.0,
+                    at: bar(l / 2.0),
                 },
-                Phase::EqRamp {
+                Phase::EqStep {
                     deck: DeckRole::Incoming,
                     band: EqBand::Mid,
-                    from_db: -40.0,
-                    to_db: 0.0,
-                    span: bars(3.0 * l / 8.0, 5.0 * l / 8.0),
-                    curve: Curve::Linear,
+                    value_db: -40.0,
+                    at: bar(0.0),
+                },
+                Phase::EqStep {
+                    deck: DeckRole::Incoming,
+                    band: EqBand::Mid,
+                    value_db: 0.0,
+                    at: bar(l / 2.0 + 1.0),
                 },
                 Phase::EqStep {
                     deck: DeckRole::Incoming,
@@ -761,13 +790,14 @@ impl Recipe for HighsFirst {
                     value_db: -40.0,
                     at: bar(0.0),
                 },
-                Phase::EqRamp {
+                // Incoming mids enter as a Step on a downbeat (bar L/4) rather
+                // than a gradual ramp — listener feels the mid-range fill in
+                // as a deliberate "moment" instead of a slow reveal.
+                Phase::EqStep {
                     deck: DeckRole::Incoming,
                     band: EqBand::Mid,
-                    from_db: -40.0,
-                    to_db: 0.0,
-                    span: bars(l / 4.0, l / 2.0),
-                    curve: Curve::Linear,
+                    value_db: 0.0,
+                    at: bar(l / 4.0),
                 },
                 Phase::EqStep {
                     deck: DeckRole::Outgoing,
