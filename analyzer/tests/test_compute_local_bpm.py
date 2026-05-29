@@ -17,8 +17,8 @@ def test_compute_local_bpm_uniform_120():
 def test_compute_local_bpm_underdetermined_bar_returns_none():
     """A bar with fewer than 2 beats yields None."""
     downbeats = [0.0, 2.0, 4.0]
-    # Bar 0 has 4 beats; bar 1 has only 1 beat.
-    beats = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0]
+    # Bar 0 has 4 beats (in [0.0, 2.0]); bar 1 has only 1 beat (in [2.0, 4.0]).
+    beats = [0.0, 0.5, 1.0, 1.5, 3.0]
     result = compute_local_bpm(beats=beats, downbeats=downbeats)
     assert len(result) == 2
     assert result[0] is not None
