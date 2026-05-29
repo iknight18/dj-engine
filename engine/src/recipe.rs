@@ -23,9 +23,9 @@ pub struct TransitionContext<'a> {
 
 /// Static per-deck effect configuration applied by the scheduler after `cue()`
 /// and before `play()`. Fields are `Option` so a recipe can configure only the
-/// effects it actually uses (`EchoOut` configures echo, `LoopOut` configures
-/// the loop buffer). Existing recipes that don't use effects set both
-/// `outgoing_init` and `incoming_init` to `None`.
+/// effects it actually uses (`LoopOut` configures the loop buffer). Existing
+/// recipes that don't use effects set both `outgoing_init` and `incoming_init`
+/// to `None`.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct DeckInitConfig {
     pub echo_delay_seconds: Option<f64>,
@@ -476,65 +476,6 @@ impl Recipe for FilterKill {
     }
 }
 
-/// `EchoOut`: outgoing fades out under an echo wash. While the equal-power
-/// crossfade does its thing, the outgoing deck's echo wet-mix ramps from 0 to
-/// 1 over the first half of the window, leaving the echo tail audible as the
-/// dry signal closes. Echo is configured for a one-beat delay with moderate
-/// feedback (0.5).
-pub struct EchoOut;
-
-impl Recipe for EchoOut {
-    fn name(&self) -> &'static str {
-        "echo_out"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let ratio = ctx.ratio;
-        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
-        let beat_seconds = bar_seconds / 4.0;
-        let l = ctx.plan.length_bars as f64;
-
-        TransitionScript {
-            length_bars: ctx.plan.length_bars,
-            phases: vec![
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerOut,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerIn,
-                },
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                Phase::EchoMix {
-                    deck: DeckRole::Outgoing,
-                    from: 0.0,
-                    to: 0.55,
-                    span: bars(0.0, l / 2.0),
-                    curve: Curve::Linear,
-                },
-            ],
-            outgoing_init: Some(DeckInitConfig {
-                echo_delay_seconds: Some(beat_seconds),
-                echo_feedback: Some(0.35),
-                loop_bars: None,
-                loop_bar_seconds: None,
-            }),
-            incoming_init: None,
-        }
-    }
-}
-
 /// `LoopOut`: outgoing locks its last few bars into a loop and rides that loop
 /// to the end while the incoming track equal-power fades in over the top. A
 /// LoopGate Step pins the loop at t0; another Step releases it at t1 so the
@@ -586,252 +527,6 @@ impl Recipe for LoopOut {
                 loop_bars: Some(4),
                 loop_bar_seconds: Some(bar_seconds),
             }),
-            incoming_init: None,
-        }
-    }
-}
-
-/// `ThreeBandSwap`: staged EQ swap on integer bar positions.
-/// - Incoming highs ramp in over bars [0, L/8].
-/// - Mids cross in the middle quarter (bars [3L/8, 5L/8]).
-/// - Bass swaps on a single downbeat at bar 7L/8.
-///
-/// Equal-power fader across the whole window. For L=16 the bass swap
-/// lands on bar 14; for L=32 on bar 28; for L=8 on bar 7.
-pub struct ThreeBandSwap;
-
-impl Recipe for ThreeBandSwap {
-    fn name(&self) -> &'static str {
-        "three_band_swap"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let ratio = ctx.ratio;
-        let l = ctx.plan.length_bars as f64;
-        let swap_at = 7.0 * l / 8.0;
-
-        TransitionScript {
-            length_bars: ctx.plan.length_bars,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerOut,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerIn,
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::High,
-                    value_db: -40.0,
-                    at: bar(0.0),
-                },
-                Phase::EqRamp {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::High,
-                    from_db: -40.0,
-                    to_db: 0.0,
-                    span: bars(0.0, l / 8.0),
-                    curve: Curve::Linear,
-                },
-                // Mids swap on integer downbeats: outgoing mids die at bar L/2,
-                // incoming mids enter at bar L/2 + 1. The 1-bar gap creates a
-                // brief "thin" moment between the two — a deliberate beat with
-                // mostly highs and bass, then incoming mids re-fill the sound.
-                Phase::EqStep {
-                    deck: DeckRole::Outgoing,
-                    band: EqBand::Mid,
-                    value_db: -40.0,
-                    at: bar(l / 2.0),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Mid,
-                    value_db: -40.0,
-                    at: bar(0.0),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Mid,
-                    value_db: 0.0,
-                    at: bar(l / 2.0 + 1.0),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Low,
-                    value_db: -40.0,
-                    at: bar(0.0),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Outgoing,
-                    band: EqBand::Low,
-                    value_db: -40.0,
-                    at: bar(swap_at),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Low,
-                    value_db: 0.0,
-                    at: bar(swap_at),
-                },
-            ],
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
-}
-
-/// `EchoThrow`: equal-power crossfade with a 1-bar one-shot echo flourish
-/// on the outgoing deck at bar L-2. Echo delay is 1 beat at the outgoing
-/// tempo; feedback is 0.75. The throw fires when the outgoing fader is
-/// already near -6 dB, so the tail rings into the incoming.
-pub struct EchoThrow;
-
-impl Recipe for EchoThrow {
-    fn name(&self) -> &'static str {
-        "echo_throw"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let ratio = ctx.ratio;
-        let beat_seconds = 60.0 / outgoing_bpm;
-        let l = ctx.plan.length_bars as f64;
-
-        TransitionScript {
-            length_bars: ctx.plan.length_bars,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerOut,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerIn,
-                },
-                // Triangle wet envelope over the last 2 bars: quick swell (0.25 bar) to 0.6,
-                // then linear decay (0.75 bar) back to 0.
-                Phase::EchoMix {
-                    deck: DeckRole::Outgoing,
-                    from: 0.0,
-                    to: 0.6,
-                    span: bars((l - 2.0).max(0.0), (l - 1.75).max(0.0)),
-                    curve: Curve::Linear,
-                },
-                Phase::EchoMix {
-                    deck: DeckRole::Outgoing,
-                    from: 0.6,
-                    to: 0.0,
-                    span: bars((l - 1.75).max(0.0), (l - 1.0).max(0.0)),
-                    curve: Curve::Linear,
-                },
-            ],
-            outgoing_init: Some(DeckInitConfig {
-                echo_delay_seconds: Some(beat_seconds),
-                echo_feedback: Some(0.5),
-                loop_bars: None,
-                loop_bar_seconds: None,
-            }),
-            incoming_init: None,
-        }
-    }
-}
-
-/// `HighsFirst`: incoming intro with bass and mids killed at start.
-/// - Incoming fader rises fast (equal-power over bars [0, L/8]).
-/// - Mids fade in over bars [L/4, L/2].
-/// - Synchronized bass swap on bar 3L/4 (outgoing low → -40dB, incoming low → 0dB).
-///
-/// Used when incoming is markedly higher energy than outgoing.
-pub struct HighsFirst;
-
-impl Recipe for HighsFirst {
-    fn name(&self) -> &'static str {
-        "highs_first"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let ratio = ctx.ratio;
-        let l = ctx.plan.length_bars as f64;
-        let swap_at = 3.0 * l / 4.0;
-
-        TransitionScript {
-            length_bars: ctx.plan.length_bars,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerOut,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, l / 8.0),
-                    curve: Curve::EqualPowerIn,
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Low,
-                    value_db: -40.0,
-                    at: bar(0.0),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Mid,
-                    value_db: -40.0,
-                    at: bar(0.0),
-                },
-                // Incoming mids enter as a Step on a downbeat (bar L/4) rather
-                // than a gradual ramp — listener feels the mid-range fill in
-                // as a deliberate "moment" instead of a slow reveal.
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Mid,
-                    value_db: 0.0,
-                    at: bar(l / 4.0),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Outgoing,
-                    band: EqBand::Low,
-                    value_db: -40.0,
-                    at: bar(swap_at),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Low,
-                    value_db: 0.0,
-                    at: bar(swap_at),
-                },
-            ],
-            outgoing_init: None,
             incoming_init: None,
         }
     }
@@ -909,136 +604,6 @@ impl Recipe for Drop {
     }
 }
 
-/// `BreakdownBridge`: outgoing's mids + bass are killed over the first 3 bars
-/// (the breakdown — only outgoing's highs ring through), then at bar 4 the
-/// outgoing hard-cuts to silence and the incoming hard-cuts in at full volume.
-/// The contrast between thin-outgoing and full-incoming is the gesture.
-pub struct BreakdownBridge;
-
-impl Recipe for BreakdownBridge {
-    fn name(&self) -> &'static str {
-        "breakdown_bridge"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let ratio = ctx.ratio;
-        let l = 4.0;
-
-        TransitionScript {
-            length_bars: 4,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                Phase::EqRamp {
-                    deck: DeckRole::Outgoing,
-                    band: EqBand::Low,
-                    from_db: 0.0,
-                    to_db: -40.0,
-                    span: bars(0.0, 3.0),
-                    curve: Curve::Linear,
-                },
-                Phase::EqRamp {
-                    deck: DeckRole::Outgoing,
-                    band: EqBand::Mid,
-                    from_db: 0.0,
-                    to_db: -40.0,
-                    span: bars(0.0, 3.0),
-                    curve: Curve::Linear,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(l, l),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(l, l),
-                    curve: Curve::Step,
-                },
-            ],
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
-}
-
-/// `DoubleDrop`: outgoing fades to silence over half a bar; both decks held
-/// silent for half a bar (anticipation gap); both hard-cut to full volume on
-/// the next downbeat; both play together for 1 bar; outgoing hard-cuts out
-/// on bar 2 leaving incoming as the new master.
-pub struct DoubleDrop;
-
-impl Recipe for DoubleDrop {
-    fn name(&self) -> &'static str {
-        "double_drop"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let ratio = ctx.ratio;
-        let l = 2.0;
-
-        TransitionScript {
-            length_bars: 2,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.5),
-                    curve: Curve::Linear,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(1.0, 1.0),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(l, l),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(1.0, 1.0),
-                    curve: Curve::Step,
-                },
-            ],
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
-}
-
 /// First index in `density[lo..hi]` where `density[i] >= threshold`. Returns
 /// the last index of the slice when no bar passes. Returns `None` for empty
 /// input or `lo >= hi`.
@@ -1058,128 +623,6 @@ fn first_bar_at_or_above(density: &[f64], lo: usize, hi: usize, threshold: f64) 
         }
     }
     None
-}
-
-/// `VocalOverlay`: 16-bar layered transition.
-/// - Bars [0, 4]: incoming's vocals stem fades in over outgoing's full mix.
-///   Incoming non-vocal stems are kept muted; the mixed fader stays at 1.0
-///   so the audible signal is purely vocals.
-/// - Bars [4, 12]: hold — outgoing plays underneath the incoming vocal.
-/// - Bars [12, 16]: incoming's drums/bass/other ramp in linearly while
-///   outgoing equal-power-fades out.
-///
-/// Requires stems on both decks (`requires_stems = true`).
-pub struct VocalOverlay;
-
-impl Recipe for VocalOverlay {
-    fn name(&self) -> &'static str {
-        "vocal_overlay"
-    }
-
-    fn requires_stems(&self) -> bool {
-        true
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        use crate::deck::StemKind;
-        let ratio = ctx.ratio;
-
-        TransitionScript {
-            length_bars: 16,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                // Outgoing equal-power fades out over the last 4 bars.
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(12.0, 16.0),
-                    curve: Curve::EqualPowerOut,
-                },
-                // Incoming mixed fader stays at 1.0 from bar 0 — per-stem faders
-                // gate everything below.
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 1.0,
-                    to: 1.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                // Mute incoming non-vocal stems at bar 0 (Step at t0).
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Drums,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Bass,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Other,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Vocals,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                // Bars [0, 4]: incoming vocals fade in.
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Vocals,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, 4.0),
-                    curve: Curve::Linear,
-                },
-                // Bars [12, 16]: incoming non-vocal stems fade in.
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Drums,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(12.0, 16.0),
-                    curve: Curve::Linear,
-                },
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Bass,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(12.0, 16.0),
-                    curve: Curve::Linear,
-                },
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Other,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(12.0, 16.0),
-                    curve: Curve::Linear,
-                },
-            ],
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
 }
 
 /// `BassSwapStemAware`: 16-bar equal-power crossfade, with bass-stem kill/release
@@ -1289,99 +732,6 @@ impl Recipe for BassSwapStemAware {
                     from: 0.0,
                     to: 0.0,
                     span: bars(outgoing_kill_bar_window, outgoing_kill_bar_window),
-                    curve: Curve::Step,
-                },
-            ],
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
-}
-
-/// `BreakdownIntoDrop`: 8-bar transition timed to outgoing's drum-density
-/// valley and incoming's drum-density peak. During the window, outgoing's
-/// drum stem progressively drops (the breakdown). At the first incoming-drum-
-/// peak bar within the window (drum_density >= 0.85; fallback bar 4),
-/// hard-cut: outgoing fader -> 0, incoming fader -> 1.
-pub struct BreakdownIntoDrop;
-
-impl Recipe for BreakdownIntoDrop {
-    fn name(&self) -> &'static str {
-        "breakdown_into_drop"
-    }
-
-    fn requires_stems(&self) -> bool {
-        true
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        use crate::deck::StemKind;
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(120.0);
-        let ratio = ctx.ratio;
-        let l = 8.0_f64;
-
-        let incoming_bar_seconds = (60.0 / incoming_bpm) * 4.0;
-        let incoming_intro_bar =
-            (ctx.plan.incoming_crossfade_start_seconds / incoming_bar_seconds) as usize;
-        let incoming_drum_density = ctx
-            .incoming
-            .sidecar
-            .stems
-            .as_ref()
-            .map(|s| s.drum_density.clone())
-            .unwrap_or_default();
-
-        // First incoming-drum-peak bar in [intro, intro + 8]; fallback bar 4.
-        let drop_bar_track = first_bar_at_or_above(
-            &incoming_drum_density,
-            incoming_intro_bar,
-            incoming_intro_bar + 8,
-            0.85,
-        );
-        let drop_bar_window = drop_bar_track
-            .map(|b| (b.saturating_sub(incoming_intro_bar)) as f64)
-            .unwrap_or(4.0)
-            .clamp(0.0, l);
-        // Breakdown ramp duration: at least 1 bar (avoid degenerate 0-span).
-        let breakdown_end = drop_bar_window.max(1.0);
-
-        TransitionScript {
-            length_bars: 8,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                // Outgoing's drum stem progressively drops over the breakdown.
-                Phase::StemFader {
-                    deck: DeckRole::Outgoing,
-                    stem: StemKind::Drums,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, breakdown_end),
-                    curve: Curve::Linear,
-                },
-                // Outgoing mixed fader holds at 1.0 then hard-cuts at the drop bar.
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(drop_bar_window, drop_bar_window),
-                    curve: Curve::Step,
-                },
-                // Incoming silent until the drop, then hard-cuts in.
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(drop_bar_window, drop_bar_window),
                     curve: Curve::Step,
                 },
             ],
@@ -1537,17 +887,9 @@ pub enum RecipeChoice {
     BassSwap,
     FilterFade,
     FilterKill,
-    EchoOut,
     LoopOut,
-    ThreeBandSwap,
-    EchoThrow,
-    HighsFirst,
     Drop,
-    BreakdownBridge,
-    DoubleDrop,
-    VocalOverlay,
     BassSwapStemAware,
-    BreakdownIntoDrop,
     RhythmSwap,
 }
 
@@ -1579,17 +921,9 @@ pub fn pick_recipe_with_scores(
         RecipeChoice::BassSwap,
         RecipeChoice::FilterFade,
         RecipeChoice::FilterKill,
-        RecipeChoice::EchoOut,
         RecipeChoice::LoopOut,
-        RecipeChoice::ThreeBandSwap,
-        RecipeChoice::EchoThrow,
-        RecipeChoice::HighsFirst,
         RecipeChoice::Drop,
-        RecipeChoice::BreakdownBridge,
-        RecipeChoice::DoubleDrop,
-        RecipeChoice::VocalOverlay,
         RecipeChoice::BassSwapStemAware,
-        RecipeChoice::BreakdownIntoDrop,
         RecipeChoice::RhythmSwap,
     ];
     let jitter_range = 0.04;
@@ -1613,7 +947,7 @@ pub fn pick_recipe_with_scores(
     (best.0, scored)
 }
 
-/// Scored picker: ranks all 7 recipes against the pair's properties and a
+/// Scored picker: ranks all candidate recipes against the pair's properties and a
 /// recency penalty. Hard-cut shortcuts when `plan.length_bars == 0`.
 pub fn pick_recipe(
     plan: &TransitionPlan,
@@ -1630,17 +964,9 @@ pub fn pick_recipe(
         RecipeChoice::BassSwap,
         RecipeChoice::FilterFade,
         RecipeChoice::FilterKill,
-        RecipeChoice::EchoOut,
         RecipeChoice::LoopOut,
-        RecipeChoice::ThreeBandSwap,
-        RecipeChoice::EchoThrow,
-        RecipeChoice::HighsFirst,
         RecipeChoice::Drop,
-        RecipeChoice::BreakdownBridge,
-        RecipeChoice::DoubleDrop,
-        RecipeChoice::VocalOverlay,
         RecipeChoice::BassSwapStemAware,
-        RecipeChoice::BreakdownIntoDrop,
         RecipeChoice::RhythmSwap,
     ];
 
@@ -1674,17 +1000,9 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
         RecipeChoice::BassSwap => 3,
         RecipeChoice::FilterFade => 4,
         RecipeChoice::FilterKill => 5,
-        RecipeChoice::EchoOut => 6,
         RecipeChoice::LoopOut => 7,
-        RecipeChoice::ThreeBandSwap => 8,
-        RecipeChoice::EchoThrow => 9,
-        RecipeChoice::HighsFirst => 10,
         RecipeChoice::Drop => 11,
-        RecipeChoice::BreakdownBridge => 12,
-        RecipeChoice::DoubleDrop => 13,
-        RecipeChoice::VocalOverlay => 14,
         RecipeChoice::BassSwapStemAware => 15,
-        RecipeChoice::BreakdownIntoDrop => 16,
         RecipeChoice::RhythmSwap => 17,
     }
 }
@@ -1699,17 +1017,9 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
         RecipeChoice::BassSwap,
         RecipeChoice::FilterFade,
         RecipeChoice::FilterKill,
-        RecipeChoice::EchoOut,
         RecipeChoice::LoopOut,
-        RecipeChoice::ThreeBandSwap,
-        RecipeChoice::EchoThrow,
-        RecipeChoice::HighsFirst,
         RecipeChoice::Drop,
-        RecipeChoice::BreakdownBridge,
-        RecipeChoice::DoubleDrop,
-        RecipeChoice::VocalOverlay,
         RecipeChoice::BassSwapStemAware,
-        RecipeChoice::BreakdownIntoDrop,
         RecipeChoice::RhythmSwap,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
@@ -1846,56 +1156,7 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.0
             }
         }
-        RecipeChoice::EchoOut => {
-            if inputs.energy_delta < -0.15 {
-                0.45
-            } else {
-                0.20
-            }
-        }
         RecipeChoice::LoopOut => 0.30,
-        RecipeChoice::ThreeBandSwap => {
-            let both_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
-            let any_heavy = inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5;
-            let long_enough = inputs.length_bars >= 16;
-            if inputs.phrase_aligned && both_heavy && long_enough {
-                0.90
-            } else if inputs.phrase_aligned && both_heavy {
-                0.70
-            } else if inputs.phrase_aligned && any_heavy {
-                0.50
-            } else {
-                0.20
-            }
-        }
-        RecipeChoice::EchoThrow => {
-            // L >= 16 only: on shorter windows the echo line accumulates ~13s of
-            // feedback-laden material that dumps audibly when the wet gate opens.
-            let smooth = inputs.energy_delta.abs() < 0.10 && inputs.length_bars >= 16;
-            let mild = inputs.energy_delta.abs() < 0.15 && inputs.length_bars >= 16;
-            if smooth {
-                0.65
-            } else if mild {
-                0.55
-            } else {
-                0.20
-            }
-        }
-        RecipeChoice::HighsFirst => {
-            let big_ramp =
-                inputs.energy_delta > 0.20 && inputs.phrase_aligned && inputs.length_bars >= 16;
-            let med_ramp = inputs.energy_delta > 0.10 && inputs.phrase_aligned;
-            let any_ramp = inputs.energy_delta > 0.05;
-            if big_ramp {
-                0.85
-            } else if med_ramp {
-                0.55
-            } else if any_ramp {
-                0.30
-            } else {
-                0.10
-            }
-        }
         RecipeChoice::Drop => {
             let big_ramp = inputs.energy_delta > 0.20 && inputs.phrase_aligned;
             let modest_ramp = inputs.energy_delta > 0.10 && inputs.phrase_aligned;
@@ -1907,41 +1168,6 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.10
             }
         }
-        RecipeChoice::BreakdownBridge => {
-            let big_winddown = inputs.energy_delta < -0.20 && inputs.phrase_aligned;
-            let modest_winddown = inputs.energy_delta < -0.10 && inputs.phrase_aligned;
-            if big_winddown {
-                0.70
-            } else if modest_winddown {
-                0.40
-            } else {
-                0.10
-            }
-        }
-        RecipeChoice::DoubleDrop => {
-            let jackpot = inputs.length_bars >= 16
-                && inputs.energy_delta.abs() < 0.05
-                && inputs.phrase_aligned;
-            if jackpot {
-                0.80
-            } else {
-                0.05
-            }
-        }
-        RecipeChoice::VocalOverlay => {
-            // The planner only promotes to length_bars >= 16 when bpm_delta
-            // <= 0.02, so requiring length_bars >= 16 here proxies the
-            // ratio ~= 1.0 gate from the spec.
-            let identical_bpm_band = inputs.energy_delta.abs() < 0.20 && inputs.stems_available;
-            let strong = identical_bpm_band && inputs.phrase_aligned && inputs.length_bars >= 16;
-            if strong {
-                0.85
-            } else if identical_bpm_band {
-                0.30
-            } else {
-                0.05
-            }
-        }
         RecipeChoice::BassSwapStemAware => {
             let strong = inputs.stems_available
                 && inputs.phrase_aligned
@@ -1951,17 +1177,6 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.92
             } else if inputs.stems_available {
                 0.30
-            } else {
-                0.05
-            }
-        }
-        RecipeChoice::BreakdownIntoDrop => {
-            let strong =
-                inputs.stems_available && inputs.phrase_aligned && inputs.energy_delta > 0.10;
-            if strong {
-                0.80
-            } else if inputs.stems_available {
-                0.20
             } else {
                 0.05
             }

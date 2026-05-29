@@ -461,51 +461,7 @@ fn filter_fade_emits_fader_pair_plus_incoming_filter_sweep() {
     assert_eq!(filter_sweep.to, 0.0);
 }
 
-use dj_engine::recipe::{EchoOut, LoopOut};
-
-#[test]
-fn echo_out_emits_fader_pair_plus_outgoing_echo_ramp_and_init() {
-    let outgoing = track(120.0);
-    let incoming = track(120.0);
-    let plan = TransitionPlan {
-        outgoing_crossfade_start_seconds: 200.0,
-        incoming_crossfade_start_seconds: 16.0,
-        length_bars: 16,
-        use_eq_swap: false,
-        skip_tempo_align: false,
-    };
-    let ctx = ctx_for(&outgoing, &incoming, &plan);
-    let r = EchoOut.build(&ctx);
-
-    // Outgoing: Fader + EchoMix ramp.
-    assert_eq!(r.outgoing_automations.len(), 2);
-    assert!(r
-        .outgoing_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::Fader && a.curve == Curve::EqualPowerOut));
-    let echo_ramp = r
-        .outgoing_automations
-        .iter()
-        .find(|a| a.target == AutomationTarget::EchoMix)
-        .expect("outgoing echo ramp");
-    assert_eq!(echo_ramp.from, 0.0);
-    assert!(
-        (echo_ramp.to - 0.55).abs() < 1e-9,
-        "EchoOut wet ramp peaks at 0.55"
-    );
-
-    // Incoming: Fader + Tempo Step.
-    assert_eq!(r.incoming_automations.len(), 2);
-
-    // Init: outgoing has echo configured; incoming has no init.
-    let init = r.outgoing_init.as_ref().expect("outgoing_init for EchoOut");
-    assert!(init.echo_delay_seconds.is_some());
-    assert!(
-        (init.echo_feedback.unwrap_or(0.0) - 0.35).abs() < 1e-9,
-        "EchoOut feedback tamed to 0.35"
-    );
-    assert!(r.incoming_init.is_none());
-}
+use dj_engine::recipe::LoopOut;
 
 #[test]
 fn loop_out_emits_fader_pair_plus_outgoing_loop_gate_and_init() {
@@ -717,17 +673,6 @@ fn score_filter_kill_rises_with_energy_drop() {
 }
 
 #[test]
-fn score_echo_out_rises_on_wind_down() {
-    let mut i = inputs_default();
-    // Deprioritized in Phase D (0.65 → 0.45 wind-down, 0.35 → 0.20 baseline).
-    i.energy_delta = -0.5;
-    assert!(score_recipe(RecipeChoice::EchoOut, &i) > 0.4);
-    i.energy_delta = 0.0;
-    let baseline = score_recipe(RecipeChoice::EchoOut, &i);
-    assert!(baseline > 0.15 && baseline < 0.25);
-}
-
-#[test]
 fn score_loop_out_is_low_baseline() {
     let i = inputs_default();
     assert!(score_recipe(RecipeChoice::LoopOut, &i) < 0.35);
@@ -772,13 +717,11 @@ fn scored_picks_bass_swap_for_heavy_aligned_pair_no_recency() {
     let (a, b) = bass_heavy_phrase_aligned_pair();
     let plan = standard_blend_plan();
     let recency = RecipeRecency::new(5);
-    // ThreeBandSwap (0.90) now outscores BassSwap (0.85) for bass-heavy
-    // phrase-aligned pairs with length_bars >= 16; accept either.
+    // BassSwap (0.85) is the top-scoring recipe for bass-heavy phrase-aligned
+    // pairs without stems. BassSwapStemAware needs stems; RhythmSwap needs
+    // stems + heavy drum density.
     let pick = pick_recipe(&plan, &a, &b, &recency);
-    assert!(
-        pick == RecipeChoice::BassSwap || pick == RecipeChoice::ThreeBandSwap,
-        "expected BassSwap or ThreeBandSwap, got {pick:?}"
-    );
+    assert_eq!(pick, RecipeChoice::BassSwap, "expected BassSwap, got {pick:?}");
 }
 
 #[test]
@@ -787,9 +730,8 @@ fn scored_skips_recent_bass_swap() {
     let plan = standard_blend_plan();
     let mut recency = RecipeRecency::new(5);
     recency.record(RecipeChoice::BassSwap);
-    // Penalized to 0.85 * 0.5 = 0.425. Other un-penalized recipes (e.g.
-    // ThreeBandSwap at 0.90 for this bass-heavy+phrase-aligned+long pair)
-    // will outrank it; we only assert the pick is NOT BassSwap.
+    // Penalized to 0.85 * 0.5 = 0.425. Other un-penalized recipes will outrank it;
+    // we only assert the pick is NOT BassSwap.
     let pick = pick_recipe(&plan, &a, &b, &recency);
     assert_ne!(
         pick,
@@ -815,7 +757,7 @@ fn scored_picks_filter_fade_for_big_energy_boost() {
 }
 
 #[test]
-fn scored_picks_filter_kill_or_echo_out_for_big_energy_drop() {
+fn scored_picks_filter_kill_for_big_energy_drop() {
     let mut a = track_with_bass(120.0, 0.5);
     let mut b = track_with_bass(120.0, 0.5);
     a.sidecar.energy_mean = Some(0.8);
@@ -825,9 +767,10 @@ fn scored_picks_filter_kill_or_echo_out_for_big_energy_drop() {
     let plan = standard_blend_plan();
     let recency = RecipeRecency::new(5);
     let pick = pick_recipe(&plan, &a, &b, &recency);
-    assert!(
-        pick == RecipeChoice::FilterKill || pick == RecipeChoice::EchoOut,
-        "expected FilterKill or EchoOut, got {pick:?}"
+    assert_eq!(
+        pick,
+        RecipeChoice::FilterKill,
+        "expected FilterKill, got {pick:?}"
     );
 }
 
@@ -841,91 +784,6 @@ fn pick_recipe_plan_only_preserved_for_legacy_tests() {
         skip_tempo_align: false,
     };
     assert_eq!(pick_recipe_plan_only(&plan), RecipeChoice::BassSwap);
-}
-
-#[test]
-fn score_three_band_swap_both_heavy_phrase_aligned_long() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: true,
-        energy_delta: 0.0,
-        outgoing_bass: 0.7,
-        incoming_bass: 0.6,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.90).abs() < 1e-9);
-}
-
-#[test]
-fn score_three_band_swap_both_heavy_short_window() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 8,
-        use_eq_swap: true,
-        energy_delta: 0.0,
-        outgoing_bass: 0.7,
-        incoming_bass: 0.6,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.70).abs() < 1e-9);
-}
-
-#[test]
-fn score_echo_throw_smooth_long() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: false,
-        energy_delta: 0.05,
-        outgoing_bass: 0.4,
-        incoming_bass: 0.4,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::EchoThrow, &inputs) - 0.65).abs() < 1e-9);
-}
-
-#[test]
-fn score_highs_first_big_ramp_long() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: false,
-        energy_delta: 0.30,
-        outgoing_bass: 0.4,
-        incoming_bass: 0.4,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.85).abs() < 1e-9);
-}
-
-#[test]
-fn score_highs_first_no_ramp_low_score() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: false,
-        energy_delta: 0.0,
-        outgoing_bass: 0.4,
-        incoming_bass: 0.4,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.10).abs() < 1e-9);
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,74 +1017,6 @@ fn score_drop_big_ramp_up() {
 }
 
 #[test]
-fn score_breakdown_bridge_winddown() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 8,
-        use_eq_swap: false,
-        energy_delta: -0.25,
-        outgoing_bass: 0.5,
-        incoming_bass: 0.5,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::BreakdownBridge, &inputs) - 0.70).abs() < 1e-9);
-}
-
-#[test]
-fn score_double_drop_jackpot() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: true,
-        energy_delta: 0.02,
-        outgoing_bass: 0.5,
-        incoming_bass: 0.5,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::DoubleDrop, &inputs) - 0.80).abs() < 1e-9);
-}
-
-#[test]
-fn score_vocal_overlay_strong_when_stems_and_aligned() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: true,
-        energy_delta: 0.05,
-        outgoing_bass: 0.5,
-        incoming_bass: 0.5,
-        phrase_aligned: true,
-        stems_available: true,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::VocalOverlay, &inputs) - 0.85).abs() < 1e-9);
-}
-
-#[test]
-fn score_vocal_overlay_weak_without_stems() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: true,
-        energy_delta: 0.05,
-        outgoing_bass: 0.5,
-        incoming_bass: 0.5,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::VocalOverlay, &inputs) - 0.05).abs() < 1e-9);
-}
-
-#[test]
 fn score_bass_swap_stem_aware_beats_basic_bass_swap_when_stems() {
     use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
     let inputs = PairScoreInputs {
@@ -1243,46 +1033,6 @@ fn score_bass_swap_stem_aware_beats_basic_bass_swap_when_stems() {
     let stem_aware = score_recipe(RecipeChoice::BassSwapStemAware, &inputs);
     let basic = score_recipe(RecipeChoice::BassSwap, &inputs);
     assert!(stem_aware > basic, "stem_aware={stem_aware} basic={basic}");
-}
-
-#[test]
-fn score_breakdown_into_drop_needs_stems_and_ramp_up() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let strong = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: false,
-        energy_delta: 0.20,
-        outgoing_bass: 0.5,
-        incoming_bass: 0.5,
-        phrase_aligned: true,
-        stems_available: true,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::BreakdownIntoDrop, &strong) - 0.80).abs() < 1e-9);
-
-    let no_stems = PairScoreInputs {
-        stems_available: false,
-        ..strong
-    };
-    assert!((score_recipe(RecipeChoice::BreakdownIntoDrop, &no_stems) - 0.05).abs() < 1e-9);
-}
-
-#[test]
-fn score_double_drop_misses_when_energy_too_far() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: true,
-        energy_delta: 0.20, // outside the < 0.05 gate
-        outgoing_bass: 0.5,
-        incoming_bass: 0.5,
-        phrase_aligned: true,
-        stems_available: false,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    assert!((score_recipe(RecipeChoice::DoubleDrop, &inputs) - 0.05).abs() < 1e-9);
 }
 
 #[test]

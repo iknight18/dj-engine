@@ -234,17 +234,9 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap_crossfade",
             dj_engine::recipe::RecipeChoice::FilterFade => "filter_fade",
             dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
-            dj_engine::recipe::RecipeChoice::EchoOut => "echo_out",
             dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
-            dj_engine::recipe::RecipeChoice::ThreeBandSwap => "three_band_swap",
-            dj_engine::recipe::RecipeChoice::EchoThrow => "echo_throw",
-            dj_engine::recipe::RecipeChoice::HighsFirst => "highs_first",
             dj_engine::recipe::RecipeChoice::Drop => "drop",
-            dj_engine::recipe::RecipeChoice::BreakdownBridge => "breakdown_bridge",
-            dj_engine::recipe::RecipeChoice::DoubleDrop => "double_drop",
-            dj_engine::recipe::RecipeChoice::VocalOverlay => "vocal_overlay",
             dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
-            dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
             dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
         };
         let outgoing_global_bpm = current.sidecar.bpm.unwrap_or(120.0);
@@ -360,18 +352,6 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
-            dj_engine::recipe::RecipeChoice::EchoOut => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::EchoOut,
-                )
-                .await?
-            }
             dj_engine::recipe::RecipeChoice::LoopOut => {
                 dj_engine::scheduler::TransitionScheduler::arm(
                     &mut mixer,
@@ -381,42 +361,6 @@ async fn main() -> anyhow::Result<()> {
                     &next_track,
                     &plan,
                     &dj_engine::recipe::LoopOut,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::ThreeBandSwap => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::ThreeBandSwap,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::EchoThrow => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::EchoThrow,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::HighsFirst => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::HighsFirst,
                 )
                 .await?
             }
@@ -432,42 +376,6 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
-            dj_engine::recipe::RecipeChoice::BreakdownBridge => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::BreakdownBridge,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::DoubleDrop => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::DoubleDrop,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::VocalOverlay => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::VocalOverlay,
-                )
-                .await?
-            }
             dj_engine::recipe::RecipeChoice::BassSwapStemAware => {
                 dj_engine::scheduler::TransitionScheduler::arm(
                     &mut mixer,
@@ -477,18 +385,6 @@ async fn main() -> anyhow::Result<()> {
                     &next_track,
                     &plan,
                     &dj_engine::recipe::BassSwapStemAware,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::BreakdownIntoDrop,
                 )
                 .await?
             }
@@ -569,17 +465,9 @@ fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
         dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap",
         dj_engine::recipe::RecipeChoice::FilterFade => "filter_fade",
         dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
-        dj_engine::recipe::RecipeChoice::EchoOut => "echo_out",
         dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
-        dj_engine::recipe::RecipeChoice::ThreeBandSwap => "three_band_swap",
-        dj_engine::recipe::RecipeChoice::EchoThrow => "echo_throw",
-        dj_engine::recipe::RecipeChoice::HighsFirst => "highs_first",
         dj_engine::recipe::RecipeChoice::Drop => "drop",
-        dj_engine::recipe::RecipeChoice::BreakdownBridge => "breakdown_bridge",
-        dj_engine::recipe::RecipeChoice::DoubleDrop => "double_drop",
-        dj_engine::recipe::RecipeChoice::VocalOverlay => "vocal_overlay",
         dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
-        dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
         dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
     }
 }
