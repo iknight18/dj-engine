@@ -602,9 +602,9 @@ fn score_hard_cut_only_when_length_zero() {
 #[test]
 fn score_equal_power_is_baseline_half() {
     let i = inputs_default();
-    // Deprioritized in Phase D (0.50 → 0.15) so stem-aware recipes can take
-    // over for the bulk of phrase-aligned same-BPM cases.
-    assert!((score_recipe(RecipeChoice::EqualPower, &i) - 0.15).abs() < 1e-9);
+    // Demoted in recipe catalog consolidation (0.15 → 0.10) so FilterFade's
+    // flat-energy tier (0.55) reliably beats it as the default crossfade.
+    assert!((score_recipe(RecipeChoice::EqualPower, &i) - 0.10).abs() < 1e-9);
 }
 
 #[test]
@@ -627,14 +627,84 @@ fn score_bass_swap_low_when_not_phrase_aligned() {
 
 #[test]
 fn score_filter_fade_rises_with_energy_boost() {
+    // FilterFade is now the always-selectable default crossfade with 4 tiers
+    // (0.30 / 0.55 / 0.70 / 0.85). Floor is 0.30 — never 0 — so it can beat
+    // EqualPower (0.10) on every input.
     let mut i = inputs_default();
     i.energy_delta = 0.3;
-    assert!(score_recipe(RecipeChoice::FilterFade, &i) > 0.7);
+    assert!((score_recipe(RecipeChoice::FilterFade, &i) - 0.85).abs() < 1e-9);
     i.energy_delta = 0.10;
-    assert!(score_recipe(RecipeChoice::FilterFade, &i) > 0.35);
-    assert!(score_recipe(RecipeChoice::FilterFade, &i) < 0.45);
+    assert!((score_recipe(RecipeChoice::FilterFade, &i) - 0.70).abs() < 1e-9);
     i.energy_delta = -0.3;
-    assert!(score_recipe(RecipeChoice::FilterFade, &i) < 0.01);
+    assert!((score_recipe(RecipeChoice::FilterFade, &i) - 0.30).abs() < 1e-9);
+}
+
+#[test]
+fn score_filter_fade_strong_energy_up_returns_0_85() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.25,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
+    };
+    assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.85).abs() < 1e-9);
+}
+
+#[test]
+fn score_filter_fade_moderate_energy_up_returns_0_70() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.10,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
+    };
+    assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.70).abs() < 1e-9);
+}
+
+#[test]
+fn score_filter_fade_flat_energy_returns_0_55() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.0,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
+    };
+    assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.55).abs() < 1e-9);
+}
+
+#[test]
+fn score_filter_fade_energy_down_returns_0_30() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: -0.20,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
+    };
+    assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.30).abs() < 1e-9);
 }
 
 #[test]
@@ -717,8 +787,9 @@ fn scored_skips_recent_bass_swap() {
     let plan = standard_blend_plan();
     let mut recency = RecipeRecency::new(5);
     recency.record(RecipeChoice::BassSwap);
-    // Penalized 0.85 * 0.5 = 0.425, below EqualPower's 0.5. Picker should
-    // switch to EqualPower (or EchoOut at 0.35, but EqualPower is higher).
+    // Penalized to 0.85 * 0.5 = 0.425. Other un-penalized recipes (e.g.
+    // ThreeBandSwap at 0.90 for this bass-heavy+phrase-aligned+long pair)
+    // will outrank it; we only assert the pick is NOT BassSwap.
     let pick = pick_recipe(&plan, &a, &b, &recency);
     assert_ne!(
         pick,

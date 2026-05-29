@@ -1812,7 +1812,7 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.0
             }
         }
-        RecipeChoice::EqualPower => 0.15,
+        RecipeChoice::EqualPower => 0.10,
         RecipeChoice::BassSwap => {
             let both_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
             let any_heavy = inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5;
@@ -1825,12 +1825,16 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             }
         }
         RecipeChoice::FilterFade => {
+            // Always-selectable default crossfade. Higher score on energy-up,
+            // but never falls to 0 — beats EqualPower's 0.10 floor.
             if inputs.energy_delta > 0.20 {
-                0.75
+                0.85
             } else if inputs.energy_delta > 0.05 {
-                0.40
+                0.70
+            } else if inputs.energy_delta > -0.05 {
+                0.55
             } else {
-                0.0
+                0.30
             }
         }
         RecipeChoice::FilterKill => {
