@@ -145,29 +145,47 @@ What the listener hears:
 
 ### Scoring
 
+The strong tier requires not just that both tracks are drum-heavy, but that their drum densities are **similar**. Mismatched densities (e.g., 0.55 vs 0.95) cause the rhythm swap to feel like an unintended energy jump — the listener perceives the new rhythm as much busier (or sparser) than the old one. For the swap to feel like a "transfer" rather than a "drop" or "lift," the rhythm densities must be close.
+
 ```rust
 RecipeChoice::RhythmSwap => {
-    let bass_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
+    let drum_density_delta = (inputs.outgoing_drum_density_mean
+        - inputs.incoming_drum_density_mean).abs();
     let drums_heavy = inputs.outgoing_drum_density_mean > 0.5
         && inputs.incoming_drum_density_mean > 0.5;
+    let drums_similar = drum_density_delta < 0.15;
+    let bass_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
     let energy_moderate = inputs.energy_delta.abs() < 0.20;
     let layering_long_enough = inputs.length_bars >= 8;
     let strong = inputs.stems_available
         && inputs.phrase_aligned
         && layering_long_enough
-        && (bass_heavy || drums_heavy)
+        && drums_heavy
+        && drums_similar
         && energy_moderate;
-    if strong && bass_heavy && drums_heavy {
+    if strong && bass_heavy {
         0.92
     } else if strong {
         0.75
+    } else if inputs.stems_available && layering_long_enough && drums_heavy {
+        // Drums are heavy on both decks but not similar enough for the strong
+        // tier — recipe still fires sometimes, but with reduced confidence.
+        0.40
     } else if inputs.stems_available && layering_long_enough {
-        0.30
+        0.20
     } else {
         0.05
     }
 }
 ```
+
+**Thresholds chosen:**
+- `drum_density_delta < 0.15` — 15% of the [0,1] range. Tracks with densities (0.7, 0.85) qualify; (0.5, 0.85) don't.
+- `drums_heavy > 0.5` — both tracks must have meaningful drum content. Sparser-drum tracks fall to the lower tier.
+
+**Why not require bass_similar too:** the bass stem's "density" character is more about presence/groove than about volume — two tracks both having a steady bassline at very different energies still feel compatible because the listener locks onto the rhythm pattern, not the bass volume. Drums dominate the perceived energy of a rhythm section, so drum density is the right gate. Bass density can become a v2 refinement.
+
+**Caveat about mean vs windowed density:** `outgoing_drum_density_mean` and `incoming_drum_density_mean` are means over the whole track. For tracks with sparse intros/outros and busy bodies, this is a reasonable proxy because the bars actually mixed (outgoing's outro region, incoming's intro region) are usually closer to the track's body than to its extremes. If listening reveals mismatches anyway (e.g., a track has a sparse outro but high overall mean), a v2 can add `drum_density_in_window(start_seconds, end_seconds)` helper on `Sidecar`, matching the pattern of `local_bpm_in_window`.
 
 ### FilterFade promotion
 
