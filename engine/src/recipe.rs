@@ -169,9 +169,7 @@ impl Recipe for EqualPowerCrossfade {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = ctx.plan.length_bars as f64;
 
         TransitionScript {
@@ -210,9 +208,7 @@ impl Recipe for HardCut {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
 
         let mut phases = vec![
             Phase::Fader {
@@ -263,9 +259,7 @@ impl Recipe for BassSwap {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = ctx.plan.length_bars as f64;
 
         let outgoing_bass = ctx
@@ -387,9 +381,7 @@ impl Recipe for FilterFade {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = ctx.plan.length_bars as f64;
 
         TransitionScript {
@@ -446,9 +438,7 @@ impl Recipe for FilterKill {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = ctx.plan.length_bars as f64;
 
         TransitionScript {
@@ -500,8 +490,7 @@ impl Recipe for EchoOut {
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
         let beat_seconds = bar_seconds / 4.0;
         let l = ctx.plan.length_bars as f64;
@@ -560,8 +549,7 @@ impl Recipe for LoopOut {
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
         let l = ctx.plan.length_bars as f64;
 
@@ -618,9 +606,7 @@ impl Recipe for ThreeBandSwap {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = ctx.plan.length_bars as f64;
         let swap_at = 7.0 * l / 8.0;
 
@@ -719,8 +705,7 @@ impl Recipe for EchoThrow {
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let beat_seconds = 60.0 / outgoing_bpm;
         let l = ctx.plan.length_bars as f64;
 
@@ -787,9 +772,7 @@ impl Recipe for HighsFirst {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = ctx.plan.length_bars as f64;
         let swap_at = 3.0 * l / 4.0;
 
@@ -867,9 +850,7 @@ impl Recipe for Drop {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = 4.0;
 
         TransitionScript {
@@ -940,9 +921,7 @@ impl Recipe for BreakdownBridge {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = 4.0;
 
         TransitionScript {
@@ -1008,9 +987,7 @@ impl Recipe for DoubleDrop {
     }
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
         let l = 2.0;
 
         TransitionScript {
@@ -1105,9 +1082,7 @@ impl Recipe for VocalOverlay {
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         use crate::deck::StemKind;
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let ratio = ctx.ratio;
 
         TransitionScript {
             length_bars: 16,
@@ -1227,9 +1202,8 @@ impl Recipe for BassSwapStemAware {
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         use crate::deck::StemKind;
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(120.0);
+        let ratio = ctx.ratio;
         let l = 16.0_f64;
 
         // Synchronized swap: pick a single bar for both outgoing's kill and
@@ -1342,9 +1316,8 @@ impl Recipe for BreakdownIntoDrop {
 
     fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
         use crate::deck::StemKind;
-        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(120.0);
+        let ratio = ctx.ratio;
         let l = 8.0_f64;
 
         let incoming_bar_seconds = (60.0 / incoming_bpm) * 4.0;

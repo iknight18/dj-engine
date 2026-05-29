@@ -118,6 +118,7 @@ fn equal_power_diff_bpm_has_journey_ramp_only_when_in_band() {
         use_eq_swap: false,
         skip_tempo_align: false,
     };
+    let expected_ratio = 120.0_f64 / 124.0_f64;
     let ctx = TransitionContext {
         outgoing: &outgoing,
         incoming: &incoming,
@@ -126,14 +127,13 @@ fn equal_power_diff_bpm_has_journey_ramp_only_when_in_band() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
-        ratio: 1.0,
-        ratio_global: 1.0,
+        ratio: expected_ratio,
+        ratio_global: expected_ratio,
     };
     let r = build_and_compile(&EqualPowerCrossfade, &ctx);
     assert_eq!(r.outgoing_automations.len(), 1);
     // Incoming: Fader-in + Tempo Step + Tempo Linear (journey ramp) = 3 automations.
     assert_eq!(r.incoming_automations.len(), 3);
-    let expected_ratio = 120.0_f64 / 124.0_f64;
     let tempo_step = r
         .incoming_automations
         .iter()
@@ -864,6 +864,7 @@ fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
         use_eq_swap: false,
         skip_tempo_align: false,
     };
+    let expected_ratio = 120.0_f64 / 126.0_f64;
     let ctx = TransitionContext {
         outgoing: &outgoing,
         incoming: &incoming,
@@ -872,8 +873,8 @@ fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
-        ratio: 1.0,
-        ratio_global: 1.0,
+        ratio: expected_ratio,
+        ratio_global: expected_ratio,
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
@@ -942,6 +943,7 @@ fn build_and_compile_does_not_inject_for_large_ratio() {
         use_eq_swap: false,
         skip_tempo_align: false,
     };
+    let expected_ratio = 120.0_f64 / 152.0_f64;
     let ctx = TransitionContext {
         outgoing: &outgoing,
         incoming: &incoming,
@@ -950,8 +952,8 @@ fn build_and_compile_does_not_inject_for_large_ratio() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
-        ratio: 1.0,
-        ratio_global: 1.0,
+        ratio: expected_ratio,
+        ratio_global: expected_ratio,
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
@@ -1020,6 +1022,7 @@ fn inject_pitch_journey_is_idempotent() {
         use_eq_swap: false,
         skip_tempo_align: false,
     };
+    let expected_ratio = 120.0_f64 / 126.0_f64;
     let ctx = TransitionContext {
         outgoing: &outgoing,
         incoming: &incoming,
@@ -1028,8 +1031,8 @@ fn inject_pitch_journey_is_idempotent() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
-        ratio: 1.0,
-        ratio_global: 1.0,
+        ratio: expected_ratio,
+        ratio_global: expected_ratio,
     };
     let mut script = EqualPowerCrossfade.build_script(&ctx);
     inject_pitch_journey(&mut script, &ctx);
