@@ -74,3 +74,15 @@ def test_analyze_emits_cue_fields_consistent_with_novelty():
     # The midpoint clamp produces exact equality; allow only float round-trip tolerance.
     assert cue_in <= intro_end <= outro_start + 1e-6
     assert outro_start <= cue_out + 1e-6
+
+
+def test_analyze_track_emits_new_madmom_fields():
+    sidecar = analyze_track(FIXTURES / "click_120bpm.wav")
+    assert "local_bpm" in sidecar
+    assert "beat_confidence" in sidecar
+    assert "downbeat_confidence" in sidecar
+    # Length invariants.
+    assert len(sidecar["beat_confidence"]) == len(sidecar["beats_seconds"])
+    assert len(sidecar["downbeat_confidence"]) == len(sidecar["downbeats_seconds"])
+    if len(sidecar["downbeats_seconds"]) >= 2:
+        assert len(sidecar["local_bpm"]) == len(sidecar["downbeats_seconds"]) - 1

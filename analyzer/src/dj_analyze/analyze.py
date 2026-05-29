@@ -12,10 +12,10 @@ from typing import Any
 from . import __version__
 from .decode import DecodeError, decode_audio
 from .detect_bands import detect_band_energies
-from .detect_beats import detect_beats
+from .detect_beat_grid import detect_beat_grid
 from .detect_bpm import detect_bpm
 from .detect_cues import detect_cues
-from .detect_downbeats import compute_chroma_ssm, detect_downbeats, detect_phrases
+from .detect_downbeats import DownbeatResult, compute_chroma_ssm, detect_phrases
 from .detect_energy import detect_energy
 from .detect_key import detect_key
 from .detect_novelty import EMPTY_NOVELTY, detect_novelty
@@ -81,9 +81,15 @@ def analyze_track(path: Path, *, stems_root: Path | None = None) -> dict[str, An
         return {**base, "error": str(e)}
 
     duration = len(audio) / sr
+
+    # Single madmom RNN+DBN pass — used for beats, downbeats, and confidences.
+    grid = detect_beat_grid(audio, sr)
+    beats = grid.beats
+    db_result = DownbeatResult(downbeats=grid.downbeats, method="madmom")
+
     bpm, bpm_conf = detect_bpm(audio, sr)
-    beats = detect_beats(audio, sr, bpm=bpm)
-    db_result = detect_downbeats(audio, sr, beats=beats)
+
+    local_bpm = compute_local_bpm(beats=beats, downbeats=db_result.downbeats)
 
     # Build the chroma SSM ONCE; both detect_phrases and detect_novelty reuse it.
     chroma_ssm = compute_chroma_ssm(audio, sr, beats) if beats else None
@@ -135,6 +141,9 @@ def analyze_track(path: Path, *, stems_root: Path | None = None) -> dict[str, An
         "bpm_confidence": float(bpm_conf),
         "beats_seconds": beats,
         "downbeats_seconds": db_result.downbeats,
+        "local_bpm": local_bpm,
+        "beat_confidence": grid.beat_confidence,
+        "downbeat_confidence": grid.downbeat_confidence,
         "key": key_result.camelot,
         "key_label": key_result.label,
         "key_confidence": float(key_result.confidence),
