@@ -64,6 +64,9 @@ fn sc_v2(
         is_beatmatchable: Some(beatmatchable),
         is_phrase_aligned: Some(phrase_aligned),
         stems: None,
+        local_bpm: vec![],
+        beat_confidence: vec![],
+        downbeat_confidence: vec![],
     }
 }
 

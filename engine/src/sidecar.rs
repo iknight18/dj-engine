@@ -97,6 +97,20 @@ pub struct Sidecar {
     /// drive selection on it (that's Phase D).
     #[serde(default)]
     pub stems: Option<Stems>,
+
+    /// Per-bar local BPM from madmom-derived non-uniform beats.
+    /// Length = len(downbeats_seconds) - 1 when ≥2 downbeats; empty otherwise.
+    /// Some(bpm) when the bar had ≥2 beats; None for underdetermined bars.
+    #[serde(default)]
+    pub local_bpm: Vec<Option<f64>>,
+
+    /// Per-beat RNN activation confidence, parallel to beats_seconds.
+    #[serde(default)]
+    pub beat_confidence: Vec<f64>,
+
+    /// Per-downbeat RNN activation confidence, parallel to downbeats_seconds.
+    #[serde(default)]
+    pub downbeat_confidence: Vec<f64>,
 }
 
 impl Sidecar {
@@ -121,5 +135,39 @@ impl Sidecar {
     /// v2 uses is_phrase_aligned; v1 conservatively returns false.
     pub fn phrase_aligned(&self) -> bool {
         self.is_phrase_aligned.unwrap_or(false)
+    }
+
+    /// Average `local_bpm` over bars whose interval overlaps
+    /// `[start_seconds, end_seconds]`, skipping `None` entries.
+    ///
+    /// Returns `None` when no Some(bpm) entry overlaps the window — caller
+    /// should fall back to `self.bpm`.
+    pub fn local_bpm_in_window(&self, start_seconds: f64, end_seconds: f64) -> Option<f64> {
+        if self.local_bpm.is_empty() || self.downbeats_seconds.len() < 2 {
+            return None;
+        }
+        let mut sum = 0.0;
+        let mut count = 0usize;
+        for (i, value) in self.local_bpm.iter().enumerate() {
+            let Some(bpm) = value else { continue };
+            // Bar i spans [downbeats[i], downbeats[i+1]).
+            let Some(bar_start) = self.downbeats_seconds.get(i) else {
+                continue;
+            };
+            let Some(bar_end) = self.downbeats_seconds.get(i + 1) else {
+                continue;
+            };
+            // Inclusive overlap.
+            if *bar_end < start_seconds || *bar_start > end_seconds {
+                continue;
+            }
+            sum += bpm;
+            count += 1;
+        }
+        if count == 0 {
+            None
+        } else {
+            Some(sum / count as f64)
+        }
     }
 }

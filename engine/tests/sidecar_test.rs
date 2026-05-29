@@ -173,3 +173,79 @@ fn deserializes_sidecar_without_stems_block() {
     let sc: Sidecar = serde_json::from_str(VALID_JSON).unwrap();
     assert!(sc.stems.is_none());
 }
+
+fn make_sidecar(downbeats: Vec<f64>, local_bpm: Vec<Option<f64>>) -> Sidecar {
+    Sidecar {
+        schema_version: 2,
+        analyzer_version: "0.5.0".into(),
+        source_path: "test".into(),
+        source_mtime: 0.0,
+        source_size_bytes: 0,
+        error: None,
+        duration_seconds: Some(120.0),
+        sample_rate: Some(44100),
+        bpm: Some(120.0),
+        bpm_confidence: Some(1.0),
+        beats_seconds: vec![],
+        downbeats_seconds: downbeats,
+        key: None,
+        key_label: None,
+        key_confidence: None,
+        energy_curve: vec![],
+        energy_mean: None,
+        cue_in_seconds: None,
+        cue_out_seconds: None,
+        intro_end_seconds: None,
+        outro_start_seconds: None,
+        is_mixable: None,
+        mixable_reasons: vec![],
+        phrase_boundaries_seconds: None,
+        phrase_confidence: None,
+        band_energy_curves: None,
+        band_energy_means: None,
+        is_beatmatchable: None,
+        is_phrase_aligned: None,
+        stems: None,
+        local_bpm,
+        beat_confidence: vec![],
+        downbeat_confidence: vec![],
+    }
+}
+
+#[test]
+fn local_bpm_in_window_uniform_returns_value() {
+    let s = make_sidecar(
+        vec![0.0, 2.0, 4.0, 6.0, 8.0],
+        vec![Some(120.0), Some(120.0), Some(120.0), Some(120.0)],
+    );
+    let v = s.local_bpm_in_window(0.0, 8.0).unwrap();
+    assert!((v - 120.0).abs() < 1e-9);
+}
+
+#[test]
+fn local_bpm_in_window_skips_nones() {
+    let s = make_sidecar(
+        vec![0.0, 2.0, 4.0, 6.0],
+        vec![Some(120.0), None, Some(124.0)],
+    );
+    let v = s.local_bpm_in_window(0.0, 6.0).unwrap();
+    assert!((v - 122.0).abs() < 1e-9); // average of 120 and 124
+}
+
+#[test]
+fn local_bpm_in_window_no_overlap_returns_none() {
+    let s = make_sidecar(vec![0.0, 2.0, 4.0], vec![Some(120.0), Some(120.0)]);
+    assert!(s.local_bpm_in_window(100.0, 200.0).is_none());
+}
+
+#[test]
+fn local_bpm_in_window_empty_array_returns_none() {
+    let s = make_sidecar(vec![0.0, 2.0], vec![]);
+    assert!(s.local_bpm_in_window(0.0, 2.0).is_none());
+}
+
+#[test]
+fn local_bpm_in_window_all_nones_returns_none() {
+    let s = make_sidecar(vec![0.0, 2.0, 4.0], vec![None, None]);
+    assert!(s.local_bpm_in_window(0.0, 4.0).is_none());
+}

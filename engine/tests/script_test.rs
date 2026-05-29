@@ -40,6 +40,9 @@ fn sidecar() -> Sidecar {
         is_beatmatchable: None,
         is_phrase_aligned: None,
         stems: None,
+        local_bpm: vec![],
+        beat_confidence: vec![],
+        downbeat_confidence: vec![],
     }
 }
 
