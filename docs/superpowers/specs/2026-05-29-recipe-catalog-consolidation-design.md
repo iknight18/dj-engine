@@ -77,42 +77,71 @@ Carrying 9 underperforming or broken recipes alongside the working ones complica
 
 **Length:** Uses `ctx.plan.length_bars` (no fixed length); only selected when `length_bars >= 8`.
 
+**Concept:** Two-phase gesture. First half is a SUBTLE rhythm reveal — incoming's drums + bass gradually fade in underneath outgoing's continuing melody. Second half begins with a FAST melody handoff at the phrase boundary (bar L/2). At all times only ONE melody is audible — outgoing's during the reveal, incoming's after the swap. The rejected layering-clash failure mode is structurally impossible.
+
 **Phase composition** (where `L = ctx.plan.length_bars`, `swap_bar = L/2.0`):
 
 ```rust
 phases: vec![
     Phase::TempoAlign { deck: Incoming, ratio },
 
-    // Mixed-fader equal-power crossfade across the full window.
-    Phase::Fader { deck: Outgoing, from: 1.0, to: 0.0, span: bars(0.0, L), curve: EqualPowerOut },
-    Phase::Fader { deck: Incoming, from: 0.0, to: 1.0, span: bars(0.0, L), curve: EqualPowerIn },
+    // Incoming mixed fader to 1 at bar 0. cue_stems leaves fader=0; without
+    // this Step the deck stays silent.
+    Phase::Fader { deck: Incoming, from: 1.0, to: 1.0, span: bars(0.0, 0.0), curve: Step },
 
-    // Incoming rhythm section muted from bar 0 (until swap_bar).
-    Phase::StemFader { deck: Incoming, stem: Drums, from: 0.0, to: 0.0, span: bars(0.0, 0.0), curve: Step },
-    Phase::StemFader { deck: Incoming, stem: Bass,  from: 0.0, to: 0.0, span: bars(0.0, 0.0), curve: Step },
+    // Outgoing mixed fader gracefully fades out over the second half.
+    // Strictly cleanup — all outgoing stems are at 0 after swap_bar, so the
+    // fader value is irrelevant audibly, but emitting it makes the log /
+    // visualisation reflect reality.
+    Phase::Fader { deck: Outgoing, from: 1.0, to: 0.0, span: bars(swap_bar, L), curve: EqualPowerOut },
 
-    // The handoff: at swap_bar, two Steps each on both decks. Rhythm section
-    // flips from outgoing to incoming in a single downbeat.
-    Phase::StemFader { deck: Outgoing, stem: Drums, from: 0.0, to: 0.0, span: bars(swap_bar, swap_bar), curve: Step },
-    Phase::StemFader { deck: Outgoing, stem: Bass,  from: 0.0, to: 0.0, span: bars(swap_bar, swap_bar), curve: Step },
-    Phase::StemFader { deck: Incoming, stem: Drums, from: 1.0, to: 1.0, span: bars(swap_bar, swap_bar), curve: Step },
-    Phase::StemFader { deck: Incoming, stem: Bass,  from: 1.0, to: 1.0, span: bars(swap_bar, swap_bar), curve: Step },
+    // ====== Subtle rhythm reveal — bars [0, swap_bar] ======
+    // Outgoing's rhythm gradually fades out; incoming's rhythm gradually
+    // fades in. The two crossfade so neither drum kit doubles the other.
+    Phase::StemFader { deck: Outgoing, stem: Drums, from: 1.0, to: 0.0, span: bars(0.0, swap_bar), curve: Linear },
+    Phase::StemFader { deck: Outgoing, stem: Bass,  from: 1.0, to: 0.0, span: bars(0.0, swap_bar), curve: Linear },
+    Phase::StemFader { deck: Incoming, stem: Drums, from: 0.0, to: 1.0, span: bars(0.0, swap_bar), curve: Linear },
+    Phase::StemFader { deck: Incoming, stem: Bass,  from: 0.0, to: 1.0, span: bars(0.0, swap_bar), curve: Linear },
+
+    // Incoming melody held off during the reveal. Initial Step→0 at bar 0
+    // because cue_stems sets all stems = 1.0; the Step explicitly mutes
+    // vocals + other for the layering window.
+    Phase::StemFader { deck: Incoming, stem: Vocals, from: 0.0, to: 0.0, span: bars(0.0, 0.0), curve: Step },
+    Phase::StemFader { deck: Incoming, stem: Other,  from: 0.0, to: 0.0, span: bars(0.0, 0.0), curve: Step },
+
+    // ====== Fast melody handoff — bar L/2 (phrase boundary) ======
+    // Outgoing's vocals + other Step to 0; incoming's vocals + other Step
+    // to 1. Both Steps fire on the same downbeat. The "fast" swap.
+    Phase::StemFader { deck: Outgoing, stem: Vocals, from: 0.0, to: 0.0, span: bars(swap_bar, swap_bar), curve: Step },
+    Phase::StemFader { deck: Outgoing, stem: Other,  from: 0.0, to: 0.0, span: bars(swap_bar, swap_bar), curve: Step },
+    Phase::StemFader { deck: Incoming, stem: Vocals, from: 1.0, to: 1.0, span: bars(swap_bar, swap_bar), curve: Step },
+    Phase::StemFader { deck: Incoming, stem: Other,  from: 1.0, to: 1.0, span: bars(swap_bar, swap_bar), curve: Step },
 ],
 ```
 
-**No manipulation of vocals or `other` stems.** They crossfade naturally via the mixed fader, so during the layering window the listener hears:
-- Outgoing.{vocals, other} at decreasing volume (mixed-fader ramping down)
-- Outgoing.{drums, bass} at decreasing volume until swap_bar (mixed-fader ramping down)
-- Incoming.{vocals, other} at increasing volume (mixed-fader ramping up)
-- Incoming.{drums, bass} = 0 until swap_bar
+**Stem-fader state by phase** (illustrative for L=16, swap_bar=8):
 
-At swap_bar: outgoing.{drums, bass} hard-mute via stems, incoming.{drums, bass} hard-release via stems. The rhythm section "moves" between decks in a single beat.
+| Time | OUT.drums | OUT.bass | OUT.vocals | OUT.other | IN.drums | IN.bass | IN.vocals | IN.other |
+|---|---|---|---|---|---|---|---|---|
+| pre-cue | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| post-cue (incoming just cued) | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| bar 0 (Steps + ramps begin) | 1 (ramp→) | 1 (ramp→) | 1 | 1 | 0 (ramp→) | 0 (ramp→) | 0 | 0 |
+| bar 4 (mid-reveal) | 0.5 | 0.5 | 1 | 1 | 0.5 | 0.5 | 0 | 0 |
+| bar 8 (swap fires) | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
+| bars 8–16 | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
 
-After swap_bar: outgoing has decreasing vocals/other (no rhythm); incoming has increasing vocals/other + full rhythm.
+What the listener hears:
+- **bar 0:** outgoing's full mix, incoming's rhythm just starting to whisper in.
+- **bars 0–4:** outgoing still dominates, incoming's rhythm building underneath.
+- **bars 4–8:** outgoing's rhythm fading out, incoming's rhythm taking over — outgoing's melody stays on top. **One melody (outgoing's) over a transitioning rhythm bed.**
+- **bar 8 (the handoff):** vocals/melody snap from outgoing to incoming on the phrase downbeat. Rhythm section already established as incoming's by this point.
+- **bars 8–16:** incoming as the new full track. Outgoing's mixed fader fades gracefully to 0.
 
-**Why L/2 instead of a smarter swap_bar (like incoming's drum-peak):** keeping the swap at the midpoint matches the existing `bass-swap` convention. A future variant can pick swap_bar from `incoming.drum_density` peaks. For v1, midpoint is predictable and easy to reason about.
+**Why L/2 as the swap bar:** the engine's planner already constructs `length_bars` to be 8/16/32 so L/2 is always a phrase boundary in 4/4 time. A future variant could scan `incoming.drum_density` for the moment incoming's rhythm becomes most energetic and snap the swap bar to that, but L/2 is a safe default that matches the spec's "phrase boundary" intent.
 
-**Why not also swap vocals/other at the same moment:** that would be the rejected `vocal-overlay` / `RhythmHandoff` pattern. The user explicitly rejected layered melody handoff. Letting vocals+other crossfade equal-power treats them as the "melody bed" — both tracks' melodies overlap during the transition like a normal crossfade, which the user accepts (it's how `equal-power` works musically).
+**Why Linear rather than EqualPower curves on the rhythm reveal:** the rhythm reveal is a CROSSFADE of stems (outgoing-drums 1→0 paired with incoming-drums 0→1). For equal-power preservation we'd want EqualPowerOut/EqualPowerIn pair, BUT the rhythm reveal is meant to be perceptually a "gradual transfer" rather than constant power. Linear gives a smoother subjective build than EqualPower-pair would (the EP pair has a faster mid-section because of the cos/sin curve). If listening reveals a power dip at bar L/4, switch to EqualPower pair.
+
+**Why the outgoing mixed fader fades only over the second half [L/2, L]:** during the rhythm reveal, outgoing's stems are still partially audible — we want them at their declared stem-fader values, not multiplied by a fader that's already dropping. After the swap, outgoing's stems are all 0 so the fader value doesn't affect audio; but emitting the fader fade keeps the audio engine state coherent and the logs honest about which deck is contributing.
 
 ### Scoring
 
