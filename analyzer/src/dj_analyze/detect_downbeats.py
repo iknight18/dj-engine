@@ -1,7 +1,9 @@
-"""Downbeat detection.
+"""Downbeat detection (madmom) + phrase-structure detection (librosa SSM).
 
-Tries madmom (gold standard) first; falls back to a librosa-based phrase detector
-that finds repetition periods via self-similarity. Both produce sorted timestamps.
+After the madmom-required switch, downbeats come exclusively from
+detect_beat_grid. The librosa-based phrase / chroma-SSM helpers below are
+retained — they are used by analyze.py to derive phrase boundaries and to
+feed novelty detection, independent of the downbeat detector.
 """
 
 from __future__ import annotations
@@ -11,39 +13,25 @@ from typing import Literal
 
 import numpy as np
 
+from .detect_beat_grid import detect_beat_grid
+
 
 @dataclass(frozen=True, slots=True)
 class DownbeatResult:
     downbeats: list[float]
-    method: Literal["madmom", "librosa_phrase", "fallback_4_4"]
+    method: Literal["madmom"]
 
 
 @dataclass(frozen=True, slots=True)
 class PhraseResult:
     boundaries: list[float]
-    confidence: float  # 0..1; ratio of best to second-best period score
+    confidence: float
 
 
-def detect_downbeats(
-    audio: np.ndarray | None,
-    sr: int,
-    beats: list[float],
-    *,
-    force_fallback: bool = False,
-) -> DownbeatResult:
-    """Return downbeat times. Prefers madmom, then librosa phrase, then 4/4 fallback."""
-    if not force_fallback and audio is not None:
-        try:
-            return _madmom_downbeats(audio, sr)
-        except Exception:
-            pass
-    if not force_fallback and audio is not None and beats:
-        # Bar-level downbeats: stride by 1 bar (4 beats) for downbeat semantics.
-        phrase = detect_phrases(audio, sr, beats=beats, output_stride_bars=1)
-        if phrase.confidence >= 0.3 and phrase.boundaries:
-            return DownbeatResult(downbeats=phrase.boundaries, method="librosa_phrase")
-    # Last-resort fallback: every 4th beat. Used only when librosa phrase fails too.
-    return DownbeatResult(downbeats=beats[::4], method="fallback_4_4")
+def detect_downbeats(audio: np.ndarray, sr: int) -> DownbeatResult:
+    """Return downbeat times from the madmom beat-grid pass."""
+    grid = detect_beat_grid(audio, sr)
+    return DownbeatResult(downbeats=grid.downbeats, method="madmom")
 
 
 # Candidate beat periods we look for in the self-similarity matrix. These are SEARCH
@@ -137,16 +125,3 @@ def detect_phrases(
     boundary_indices = list(range(anchor, len(beats), stride_beats))
     boundaries = [beats[i] for i in boundary_indices]
     return PhraseResult(boundaries=boundaries, confidence=confidence)
-
-
-def _madmom_downbeats(audio: np.ndarray, sr: int) -> DownbeatResult:
-    # Imported lazily so madmom absence doesn't break this module.
-    from madmom.features.beats import DBNDownBeatTrackingProcessor  # type: ignore[import-not-found]
-    from madmom.features.downbeats import RNNDownBeatProcessor  # type: ignore[import-not-found]
-
-    rnn = RNNDownBeatProcessor()
-    dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
-    activations = rnn(audio.astype(np.float32))
-    beats_and_positions = dbn(activations)
-    downbeats = [float(t) for t, pos in beats_and_positions if int(round(pos)) == 1]
-    return DownbeatResult(downbeats=downbeats, method="madmom")
