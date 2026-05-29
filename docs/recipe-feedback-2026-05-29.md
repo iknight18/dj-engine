@@ -18,7 +18,7 @@ Each recipe is force-tested via `--force-recipe <name>` and evaluated by ear. No
 | 3 | `bass-swap` | No | tested (historical) | refactor — drums also overlap during EQ kill |
 | 4 | `filter-fade` | No | tested | promote — preferred over equal-power |
 | 5 | `filter-kill` | No | tested | keep for energy-down; not as preferred as filter-fade |
-| 6 | `echo-out` | No | tested | keep; consider bumping wet/feedback for more audible character |
+| 6 | `echo-out` | No | tested | drop — echo subsystem suspect + character too subtle |
 | 7 | `loop-out` | No | tested | keep + enhance with filter sweep on loop + incoming rhythm leak-in |
 | 8 | `three-band-swap` | No | tested | drop or radically rework — bad on multiple sessions |
 | 9 | `echo-throw` | No | tested | drop — echo effect not audibly working |
@@ -91,7 +91,7 @@ Format: one block per recipe. Filled in during testing.
 **What it does:** Equal-power crossfade. Outgoing's echo wet-mix ramps 0→0.55 over the first half of the window. Beat-length delay, feedback 0.35. The echo tail rings under the incoming as outgoing's dry signal closes.
 **Tested on transitions:** 001→006 (L=8, duration 15.3s)
 **Feedback:** "Not very bad. Actually didn't feel too much of an echo. Not so bad." — echo character was too subtle to register as a distinctive gesture. Transition felt like a regular crossfade with a faint hint of echo.
-**Decision:** Keep. **Tunable:** consider bumping max wet from 0.55 to 0.65–0.75 and/or feedback from 0.35 to 0.45 to make the echo more audible. Not a hero gesture as-is.
+**Decision:** **Drop.** Updated after echo-throw also failed and the broader echo subsystem was flagged as suspect. Two echo recipes both failed to deliver audible echo character at any wet/feedback level — strong signal the underlying EchoLine implementation isn't audibly working. Removing both echo recipes from the catalog. If the echo subsystem gets fixed later, echo gestures can be reintroduced as new recipes designed for the working effect.
 
 ---
 
@@ -210,18 +210,18 @@ Engine is stopped. Resume by force-restarting with `--force-recipe echo-out` (ne
 
 ## Decisions summary
 
-**Kept (7 of 16):**
+**Kept (6 of 16):**
 - `filter-fade` — **promoted to default crossfade** (preferred over equal-power)
 - `filter-kill` — keep for energy-down transitions
 - `equal-power` — deprioritize, keep as final fallback
 - `hard-cut` — keep for genre mismatch; design "punctuated" variant with outgoing FX
-- `echo-out` — keep with caveats; echo subsystem suspect
 - `loop-out` — loop = good primitive; replace the equal-power fade with better incoming-arrival
 - `drop` — keep, context-specific (trust the picker)
 
-**Dropped (7 of 16):**
+**Dropped (8 of 16):**
 - `three-band-swap` — convoluted multi-band Step swap, consistently bad
-- `echo-throw` — echo character not audible; remove
+- `echo-out` — echo character too subtle; echo subsystem suspect
+- `echo-throw` — echo character not audible; same root cause as echo-out
 - `highs-first` — unnatural Step-based EQ reveal
 - `breakdown-bridge` — Step-based bass+mid kill, doesn't work
 - `double-drop` — full-volume layering of two tracks = clash
@@ -247,9 +247,9 @@ Engine is stopped. Resume by force-restarting with `--force-recipe echo-out` (ne
 
 **Action items in priority order:**
 
-1. **Investigate echo subsystem** — the EchoLine implementation appears not to deliver audible echo character. Test with a one-deck unit test that captures dry + wet and verifies wet contains delayed dry.
+1. **Drop the dropped recipes** — remove `echo-out`, `echo-throw`, `three-band-swap`, `highs-first`, `breakdown-bridge`, `double-drop`, `vocal-overlay`, `breakdown-into-drop` from the picker candidates list. Refactor scoring.
 2. **Promote filter-fade** to default crossfade — raise its score floor, demote equal-power to fallback.
-3. **Drop the dropped recipes** — remove or comment-out `three-band-swap`, `echo-throw`, `highs-first`, `breakdown-bridge`, `double-drop`, `vocal-overlay`, `breakdown-into-drop` from the picker candidates list. Refactor scoring.
-4. **Design "punctuated hard-cut"** variant — apply outgoing FX (echo, filter sweep, tape stop) before the cut, for genre-mismatch use.
-5. **Design RhythmSwap** — stems-aware drums+bass swap together. Replaces both `bass-swap` (EQ) and `bass-swap-stem-aware` (bass-only).
-6. **Enhance loop-out** — replace equal-power fade with filter-fade on incoming, OR layer incoming's rhythm stems under the looping outgoing.
+3. **Design RhythmSwap** — stems-aware drums+bass swap together. Replaces both `bass-swap` (EQ) and `bass-swap-stem-aware` (bass-only).
+4. **Design "punctuated hard-cut"** variant — apply outgoing FX (filter sweep, tape stop, NOT echo — broken) before the cut, for genre-mismatch use.
+5. **Enhance loop-out** — replace equal-power fade with filter-fade on incoming, OR layer incoming's rhythm stems under the looping outgoing.
+6. **(Deferred)** **Echo subsystem investigation** — only worth doing if we want to reintroduce echo gestures later. With both echo recipes dropped, this is no longer blocking.
