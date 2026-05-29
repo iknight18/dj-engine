@@ -117,6 +117,22 @@
         "demucs_version": { "type": "string" },
         "model": { "type": "string" }
       }
+    },
+
+    "local_bpm": {
+      "type": "array",
+      "items": { "type": ["number", "null"] },
+      "description": "Per-bar local BPM derived from non-uniform madmom beats. Length = len(downbeats_seconds) - 1. null when a bar has fewer than 2 beats."
+    },
+    "beat_confidence": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0, "maximum": 1 },
+      "description": "Per-beat RNN activation confidence from madmom, parallel to beats_seconds."
+    },
+    "downbeat_confidence": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0, "maximum": 1 },
+      "description": "Per-downbeat RNN activation confidence from madmom, parallel to downbeats_seconds."
     }
   },
   "additionalProperties": false,
