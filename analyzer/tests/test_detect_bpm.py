@@ -15,6 +15,13 @@ def test_detects_120_bpm_within_tolerance() -> None:
     assert 0.0 <= confidence <= 1.0
 
 
+def test_detect_bpm_on_120_click_returns_near_120() -> None:
+    audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
+    bpm, conf = detect_bpm(audio, sr)
+    assert 119.0 < bpm < 121.0, f"expected ~120, got {bpm}"
+    assert 0.0 <= conf <= 1.0
+
+
 def test_confidence_is_high_on_clean_click_track() -> None:
     audio, sr = decode_audio(FIXTURES / "click_120bpm.wav")
     _, confidence = detect_bpm(audio, sr)
@@ -55,45 +62,15 @@ def test_octave_normalize_zero_or_negative_pass_through() -> None:
     assert _octave_normalize(-1.0, 152.0) == -1.0
 
 
-import numpy as np
 import pytest
 
 from dj_analyze.detect_bpm import (
-    bpm_from_beats,
     resolve_octave,
     _snap_to_perceptual,
     PERCEPTUAL_LOW,
     PERCEPTUAL_HIGH,
     PERCEPTUAL_DEFAULT,
 )
-
-
-def test_bpm_from_beats_120_bpm() -> None:
-    # 4 beats at 0.5-second intervals → 120 BPM.
-    # librosa.frames_to_time uses hop_length=512 by default, so frame indices must be
-    # in those units: 0.5 s * 22050 / 512 ≈ 21.5 → use multiples of 21 frames.
-    sr = 22050
-    hop_length = 512
-    # Exact: 0.5 s / (hop_length / sr) = 0.5 * 22050 / 512 ≈ 21.533 frames
-    # Use float-rounded to nearest integer for minimal quantization error.
-    frames_per_beat = round(0.5 * sr / hop_length)  # = 22
-    beat_frames = np.array([0, frames_per_beat, frames_per_beat * 2, frames_per_beat * 3])
-    bpm = bpm_from_beats(beat_frames, sr=sr)
-    assert bpm is not None
-    assert abs(bpm - 120.0) < 3.0  # allow for integer quantization in frame conversion
-
-
-def test_bpm_from_beats_returns_none_for_empty() -> None:
-    assert bpm_from_beats(np.array([]), sr=22050) is None
-
-
-def test_bpm_from_beats_returns_none_for_single_beat() -> None:
-    assert bpm_from_beats(np.array([1000]), sr=22050) is None
-
-
-def test_bpm_from_beats_returns_none_for_zero_interval() -> None:
-    # Two beats at the same frame → zero IBI.
-    assert bpm_from_beats(np.array([100, 100]), sr=22050) is None
 
 
 def test_resolve_octave_exact_agreement_passes_through() -> None:

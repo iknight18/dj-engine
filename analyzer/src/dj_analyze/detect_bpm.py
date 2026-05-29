@@ -12,25 +12,6 @@ PERCEPTUAL_DEFAULT = 120.0
 AGREEMENT_TOLERANCE = 0.06  # ±6%, matches _VOTE_TOLERANCE below.
 
 
-def bpm_from_beats(beat_frames: np.ndarray, sr: int) -> float | None:
-    """Derive a BPM estimate from beat-frame positions by taking 60 / median IBI.
-
-    Returns ``None`` when the input has fewer than 2 beats or the median inter-beat
-    interval is non-positive. Used as a second, independent BPM estimate to cross-check
-    the global ``librosa.beat.tempo`` output for octave errors.
-    """
-    if beat_frames is None or len(beat_frames) < 2:
-        return None
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-    intervals = np.diff(beat_times)
-    if len(intervals) == 0:
-        return None
-    median_ibi = float(np.median(intervals))
-    if median_ibi <= 0:
-        return None
-    return 60.0 / median_ibi
-
-
 def _snap_to_perceptual(bpm: float) -> float:
     """Octave-shift ``bpm`` into the perceptual range [70, 180] when possible.
 
@@ -96,29 +77,32 @@ def resolve_octave(primary: float, secondary: float | None) -> float:
 
 
 def detect_bpm(audio: np.ndarray, sr: int) -> tuple[float, float]:
-    """Estimate global BPM and a confidence score in [0, 1].
+    """Estimate global BPM and a stability confidence in [0, 1].
 
-    The global tempo from ``librosa.beat.tempo`` is octave-ambiguous on tracks where
-    the onset envelope is consistent with both X BPM and 2X BPM. We cross-check
-    against a second estimate from ``librosa.beat.beat_track`` (median inter-beat
-    interval), then route both through ``resolve_octave`` which prefers candidates
-    inside the perceptual range [70, 180] BPM.
-
-    Confidence is then computed against the *resolved* BPM, so windows must agree
-    with the corrected value (not the raw librosa output).
+    BPM is derived from madmom beats (median IBI across the whole song), then
+    routed through resolve_octave to guard against octave errors. Confidence is
+    the existing 10-second-window voting metric, unchanged.
     """
+    from .detect_beat_grid import detect_beat_grid
+
+    grid = detect_beat_grid(audio, sr)
+    if len(grid.beats) < 2:
+        # Fallback: librosa global tempo when madmom finds no beats. Should be
+        # exceptionally rare on real audio; mirrors the previous safety net.
+        onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
+        global_tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr, aggregate=np.median)
+        primary = float(global_tempo[0])
+        resolved = _snap_to_perceptual(primary)
+        return resolved, _tempo_stability(audio, sr, resolved)
+
+    intervals = np.diff(np.asarray(grid.beats))
+    median_ibi = float(np.median(intervals))
+    primary = 60.0 / median_ibi if median_ibi > 0 else 0.0
+
+    # Secondary: 10s-window librosa estimate kept as the octave cross-check.
     onset_env = librosa.onset.onset_strength(y=audio, sr=sr)
-
-    # Primary estimate: median-aggregated tempo over the onset envelope.
     global_tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr, aggregate=np.median)
-    primary = float(global_tempo[0])
-
-    # Secondary estimate from actual beat positions; may be None if beat_track fails.
-    try:
-        _, beat_frames = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
-    except Exception:
-        beat_frames = None
-    secondary = bpm_from_beats(beat_frames, sr) if beat_frames is not None else None
+    secondary = float(global_tempo[0]) if len(global_tempo) > 0 else None
 
     resolved = resolve_octave(primary, secondary)
     confidence = _tempo_stability(audio, sr, resolved)
