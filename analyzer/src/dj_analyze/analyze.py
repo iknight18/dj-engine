@@ -27,6 +27,43 @@ SCHEMA_VERSION = 2
 _log = logging.getLogger("dj_analyze.analyze")
 
 
+def compute_local_bpm(
+    *, beats: list[float], downbeats: list[float]
+) -> list[float | None]:
+    """Per-bar local BPM from median inter-beat interval within each bar.
+
+    Returns one entry per fully-defined bar (between consecutive downbeats).
+    Entry is None when the bar contains fewer than 2 beats. The partial bar
+    after the last downbeat is dropped, matching the existing per-bar arrays.
+    """
+    import statistics
+
+    if len(downbeats) < 2:
+        # Zero or one downbeat: no fully-defined bars except possibly a single
+        # "bar 0" bounded above by nothing. By the spec, drop that case.
+        if len(downbeats) == 1:
+            return [None]
+        return []
+
+    out: list[float | None] = []
+    for i in range(len(downbeats) - 1):
+        t0, t1 = downbeats[i], downbeats[i + 1]
+        in_bar = [b for b in beats if t0 <= b <= t1]
+        if len(in_bar) < 2:
+            out.append(None)
+            continue
+        ibis = [in_bar[j + 1] - in_bar[j] for j in range(len(in_bar) - 1)]
+        if not ibis:
+            out.append(None)
+            continue
+        median = statistics.median(ibis)
+        if median <= 0:
+            out.append(None)
+            continue
+        out.append(60.0 / median)
+    return out
+
+
 def analyze_track(path: Path, *, stems_root: Path | None = None) -> dict[str, Any]:
     """Analyze one audio file. Returns a sidecar-shaped dict (schema v2)."""
     stat = path.stat()
