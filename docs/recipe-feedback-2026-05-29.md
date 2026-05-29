@@ -13,11 +13,11 @@ Each recipe is force-tested via `--force-recipe <name>` and evaluated by ear. No
 
 | # | Recipe (CLI flag) | Stems? | Status | Decision |
 |---|---|---|---|---|
-| 1 | `equal-power` | No | pending | — |
-| 2 | `hard-cut` | No | pending | — |
-| 3 | `bass-swap` | No | pending | — |
-| 4 | `filter-fade` | No | pending | — |
-| 5 | `filter-kill` | No | pending | — |
+| 1 | `equal-power` | No | tested | deprioritize, keep as final fallback |
+| 2 | `hard-cut` | No | tested | keep for genre mismatch; design "punctuated hard-cut" variant with outgoing FX |
+| 3 | `bass-swap` | No | tested (historical) | refactor — drums also overlap during EQ kill |
+| 4 | `filter-fade` | No | tested | promote — preferred over equal-power |
+| 5 | `filter-kill` | No | tested | keep for energy-down; not as preferred as filter-fade |
 | 6 | `echo-out` | No | pending | — |
 | 7 | `loop-out` | No | pending | — |
 | 8 | `three-band-swap` | No | pending | — |
@@ -39,45 +39,50 @@ Format: one block per recipe. Filled in during testing.
 ### 1. equal-power
 
 **What it does:** Equal-power crossfade across the full window. Both faders use cosine curves so power stays constant. No EQ, no filter, no effects.
-**Tested on transitions:**
-**Feedback:**
-**Decision:**
+**Tested on transitions:** 001→013 (L=8, ratio_local=1.0035, ratio_global=1.000, duration 15.3s)
+**Feedback:** "Seemed radio-like. A basic transition." Sounds like FM radio crossfade — smooth, generic, nothing distinctive. No clash heard at the midpoint but also no character.
+**Decision:** Deprioritize. Keep as final fallback when no other recipe scores well.
 
 ---
 
 ### 2. hard-cut
 
 **What it does:** Instantaneous Step crossfade at the downbeat. Outgoing fader 1→0 Step, incoming fader 0→1 Step at the same moment. Length 0 bars.
-**Tested on transitions:**
-**Feedback:**
-**Decision:**
+**Tested on transitions:** 001→015 (instant, duration 0s, bpm_ratio 1.0012)
+**Feedback:** Useful for **genre mismatch** — when the two songs don't blend well, a clean cut is the right move. But a pure hard-cut is harsh. Should be softened with an outgoing-only effect first (echo out, filter sweep, tape stop, etc.) to signal "this song is ending" before the cut lands.
+**Decision:** Keep hard-cut for genre-mismatch cases. **Design follow-up:** a "punctuated hard-cut" variant that applies an outgoing effect over the last few bars, then hard-cuts to incoming.
 
 ---
 
 ### 3. bass-swap
 
 **What it does:** Equal-power crossfade with EQ swap. Outgoing held at fader=1 until L/2, incoming enters at bar 0 with EqLow killed (-40dB). Both EqLow Step-swap at L/2 (outgoing→killed, incoming→released). Outgoing equal-power-fades out over [L/2, L].
-**Tested on transitions:**
-**Feedback:**
-**Decision:**
+**Tested on transitions:** Historical feedback from earlier in the day on multiple transitions.
+**Feedback (historical):**
+- Step-on-downbeat refactor: "not so bad but didn't sound cool." Incoming's vocals layered over outgoing's bass during [0, L/2] — the vocals don't match outgoing's key.
+- "Two melodies is ambiguous" — incoming's mids/highs/vocals fighting outgoing's mids/highs/vocals during the layering window.
+- EQ kill only removes low band; drums (snares, hats, percussion) overlap on BOTH decks during the swap window. Cluttered.
+**Decision:** Refactor required. Either:
+  (a) Replace with stem-aware version that mutes outgoing's drums + bass and incoming's vocals + other during the layering window (the gesture we sketched as RhythmHandoff but with a single-downbeat swap instead of phrase handoff), OR
+  (b) Drop the layering window entirely — just do an EQ swap on a single downbeat with no overlap.
 
 ---
 
 ### 4. filter-fade
 
 **What it does:** Equal-power crossfade with incoming high-pass filter. Outgoing fades out equal-power. Incoming fader fades in equal-power. Incoming's one-knob filter sweeps from +1.0 (full high-pass, treble only) to 0.0 (bypass) across the window. Outgoing untouched.
-**Tested on transitions:**
-**Feedback:**
-**Decision:**
+**Tested on transitions:** 001→011 (L=8, ratio_local=1.0093, duration 15.3s)
+**Feedback:** "Better than the normal crossfade." User prefers this to equal-power and wants it to be the default crossfade if possible.
+**Decision:** Promote — raise score floor so filter-fade is the default plain-crossfade gesture instead of equal-power. Consider deprecating equal-power entirely or relegating it to the no-stems / no-filter-CPU fallback. **Caveat:** filter-fade has a "build" character (rising treble→bass reveal). Appropriate for energy-up and energy-flat. For energy-DOWN transitions, the build feel may be wrong — keep equal-power as the fallback for those.
 
 ---
 
 ### 5. filter-kill
 
 **What it does:** Outgoing high-passes itself OUT (filter sweep from 0 → +1 over the first 60% of the window). Outgoing fader equal-power fades out over the full window. Incoming fader equal-power fades in over the full window (no filter on incoming).
-**Tested on transitions:**
-**Feedback:**
-**Decision:**
+**Tested on transitions:** Forced session 2026-05-29 14:xx (filter-kill build)
+**Feedback:** "Not so good but yeah I'm liking filter-based transitions for now." Has its use cases — keep it but not as a primary pick.
+**Decision:** Keep for energy-down transitions (where outgoing thinning out musically makes sense). Lower priority than filter-fade. General signal: filter-based gestures are working well for this listener.
 
 ---
 
@@ -184,7 +189,15 @@ Format: one block per recipe. Filled in during testing.
 
 (Things that span recipes — beat alignment, loudness, key clashes, etc.)
 
--
+- **Filter-based recipes are landing well.** filter-fade preferred over plain equal-power. filter-kill acceptable as energy-down variant. Suggests we should expand the filter-based recipe family.
+- **Layering with vocals/mids on top causes the "ambiguous" problem.** bass-swap, vocal-overlay, etc. all suffer from this. Stems-aware drums+bass swaps avoid the issue.
+- **Madmom local section BPMs differ from globals by 0.1-0.4% on most transitions.** Real measurable signal, though small. Will continue showing up in `bpm_delta_pct` log field.
+
+## Session pause notes (2026-05-29)
+
+Paused after recipe #5 of 16. Tested so far: equal-power, hard-cut, bass-swap (historical), filter-fade, filter-kill. Remaining: echo-out, loop-out, three-band-swap, echo-throw, highs-first, drop, breakdown-bridge, double-drop, vocal-overlay, bass-swap-stem-aware, breakdown-into-drop.
+
+Engine is stopped. Resume by force-restarting with `--force-recipe echo-out` (next in the list).
 
 ## Decisions summary
 
