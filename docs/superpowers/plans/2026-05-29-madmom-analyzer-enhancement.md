@@ -232,8 +232,10 @@ def detect_beat_grid(audio: np.ndarray, sr: int) -> BeatGrid:
       - beat_confidence: RNN beat-axis activation sampled at each beat time, [0, 1]
       - downbeat_confidence: RNN downbeat-axis activation sampled at each downbeat, [0, 1]
     """
-    from madmom.features.beats import DBNDownBeatTrackingProcessor
-    from madmom.features.downbeats import RNNDownBeatProcessor
+    from madmom.features.downbeats import (
+        DBNDownBeatTrackingProcessor,
+        RNNDownBeatProcessor,
+    )
 
     rnn = RNNDownBeatProcessor()
     dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=_RNN_FPS)
