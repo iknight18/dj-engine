@@ -1,5 +1,14 @@
 //! Per-deck DSP effects: IIR echo delay and capture-and-replay loop buffer.
+//!
+//! NOTE: `EchoLine` is currently unused — both echo-based recipes (echo-out,
+//! echo-throw) were dropped in the 2026-05-29 catalog consolidation after
+//! listening feedback found the echo character not audibly perceptible. The
+//! implementation is kept for future echo recipes once the audibility
+//! is investigated. See:
+//!   - `docs/recipe-feedback-2026-05-29.md`
+//!   - `docs/superpowers/specs/2026-05-29-recipe-catalog-consolidation-design.md`
 
+#[allow(dead_code)]
 pub struct EchoLine {
     buffer_l: Vec<f32>,
     buffer_r: Vec<f32>,
