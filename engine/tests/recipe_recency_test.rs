@@ -11,8 +11,8 @@ fn new_ring_contains_nothing() {
 #[test]
 fn record_then_contains() {
     let mut r = RecipeRecency::new(5);
-    r.record(RecipeChoice::BassSwap);
-    assert!(r.contains(RecipeChoice::BassSwap));
+    r.record(RecipeChoice::RhythmSwap);
+    assert!(r.contains(RecipeChoice::RhythmSwap));
     assert!(!r.contains(RecipeChoice::EqualPower));
 }
 
@@ -20,18 +20,18 @@ fn record_then_contains() {
 fn ring_evicts_oldest_at_capacity() {
     let mut r = RecipeRecency::new(2);
     r.record(RecipeChoice::EqualPower);
-    r.record(RecipeChoice::BassSwap);
+    r.record(RecipeChoice::RhythmSwap);
     assert!(r.contains(RecipeChoice::EqualPower));
     r.record(RecipeChoice::FilterFade);
     // EqualPower should be evicted now.
     assert!(!r.contains(RecipeChoice::EqualPower));
-    assert!(r.contains(RecipeChoice::BassSwap));
+    assert!(r.contains(RecipeChoice::RhythmSwap));
     assert!(r.contains(RecipeChoice::FilterFade));
 }
 
 #[test]
 fn capacity_zero_disables_recency() {
     let mut r = RecipeRecency::new(0);
-    r.record(RecipeChoice::BassSwap);
-    assert!(!r.contains(RecipeChoice::BassSwap));
+    r.record(RecipeChoice::RhythmSwap);
+    assert!(!r.contains(RecipeChoice::RhythmSwap));
 }

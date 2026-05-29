@@ -231,12 +231,10 @@ async fn main() -> anyhow::Result<()> {
         let recipe_name: &str = match choice {
             dj_engine::recipe::RecipeChoice::EqualPower => "equal_power_crossfade",
             dj_engine::recipe::RecipeChoice::HardCut => "hard_cut",
-            dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap_crossfade",
             dj_engine::recipe::RecipeChoice::FilterFade => "filter_fade",
             dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
             dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
             dj_engine::recipe::RecipeChoice::Drop => "drop",
-            dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
             dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
         };
         let outgoing_global_bpm = current.sidecar.bpm.unwrap_or(120.0);
@@ -262,7 +260,7 @@ async fn main() -> anyhow::Result<()> {
         let ratio = section_ratio.ratio_local;
         let transition_start_master = mixer.master_clock_frames();
         let transition_type = transition_type_label(plan.length_bars, plan.use_eq_swap);
-        // Compact score string: "equal_power=0.51 bass_swap=0.84 ..."
+        // Compact score string: "equal_power=0.51 rhythm_swap=0.84 ..."
         let scores_str: String = scored
             .iter()
             .map(|(c, s)| format!("{}={:.2}", recipe_choice_name(*c), s))
@@ -316,18 +314,6 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
-            dj_engine::recipe::RecipeChoice::BassSwap => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::BassSwap,
-                )
-                .await?
-            }
             dj_engine::recipe::RecipeChoice::FilterFade => {
                 dj_engine::scheduler::TransitionScheduler::arm(
                     &mut mixer,
@@ -373,18 +359,6 @@ async fn main() -> anyhow::Result<()> {
                     &next_track,
                     &plan,
                     &dj_engine::recipe::Drop,
-                )
-                .await?
-            }
-            dj_engine::recipe::RecipeChoice::BassSwapStemAware => {
-                dj_engine::scheduler::TransitionScheduler::arm(
-                    &mut mixer,
-                    current_deck,
-                    other_deck,
-                    &current,
-                    &next_track,
-                    &plan,
-                    &dj_engine::recipe::BassSwapStemAware,
                 )
                 .await?
             }
@@ -462,29 +436,28 @@ fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
     match c {
         dj_engine::recipe::RecipeChoice::EqualPower => "equal_power",
         dj_engine::recipe::RecipeChoice::HardCut => "hard_cut",
-        dj_engine::recipe::RecipeChoice::BassSwap => "bass_swap",
         dj_engine::recipe::RecipeChoice::FilterFade => "filter_fade",
         dj_engine::recipe::RecipeChoice::FilterKill => "filter_kill",
         dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
         dj_engine::recipe::RecipeChoice::Drop => "drop",
-        dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
         dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
     }
 }
 
 /// Human-readable label for the transition variant a `TransitionPlan` represents.
 /// `length_bars` is the canonical signal: 0 = hard cut, 8 = quick cut, 16 = standard
-/// blend, 32 = long blend. `use_eq_swap=true` now triggers the `BassSwap` recipe,
-/// so the label reflects the realized variant rather than the pre-refactor intent.
+/// blend, 32 = long blend. `use_eq_swap=true` now hints the planner toward a
+/// rhythm-swap-style variant, so the label reflects the realized intent rather
+/// than the pre-refactor recipe-specific naming.
 fn transition_type_label(length_bars: usize, use_eq_swap: bool) -> &'static str {
     match (length_bars, use_eq_swap) {
         (0, _) => "hard_cut",
         (8, false) => "quick_cut",
-        (8, true) => "bass_swap_quick_cut",
+        (8, true) => "eq_swap_quick_cut",
         (16, false) => "standard_blend",
-        (16, true) => "bass_swap_standard_blend",
+        (16, true) => "eq_swap_standard_blend",
         (32, false) => "long_blend",
-        (32, true) => "bass_swap_long_blend",
+        (32, true) => "eq_swap_long_blend",
         _ => "custom_blend",
     }
 }

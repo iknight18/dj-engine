@@ -50,12 +50,10 @@ pub enum LogFormat {
 pub enum ForceRecipe {
     EqualPower,
     HardCut,
-    BassSwap,
     FilterFade,
     FilterKill,
     LoopOut,
     Drop,
-    BassSwapStemAware,
     RhythmSwap,
 }
 
@@ -64,12 +62,10 @@ impl ForceRecipe {
         match self {
             ForceRecipe::EqualPower => crate::recipe::RecipeChoice::EqualPower,
             ForceRecipe::HardCut => crate::recipe::RecipeChoice::HardCut,
-            ForceRecipe::BassSwap => crate::recipe::RecipeChoice::BassSwap,
             ForceRecipe::FilterFade => crate::recipe::RecipeChoice::FilterFade,
             ForceRecipe::FilterKill => crate::recipe::RecipeChoice::FilterKill,
             ForceRecipe::LoopOut => crate::recipe::RecipeChoice::LoopOut,
             ForceRecipe::Drop => crate::recipe::RecipeChoice::Drop,
-            ForceRecipe::BassSwapStemAware => crate::recipe::RecipeChoice::BassSwapStemAware,
             ForceRecipe::RhythmSwap => crate::recipe::RecipeChoice::RhythmSwap,
         }
     }

@@ -244,10 +244,9 @@ fn pick_recipe_chooses_equal_power_for_nonzero_bars() {
 }
 
 // ---------------------------------------------------------------------------
-// BassSwap recipe tests (sub-project 2, task 5)
+// Shared helpers for downstream recipe + scoring tests.
 // ---------------------------------------------------------------------------
 
-use dj_engine::recipe::BassSwap;
 use dj_engine::sidecar::BandValues;
 
 fn track_with_bass(bpm: f64, bass: f64) -> LoadedTrack {
@@ -260,16 +259,6 @@ fn track_with_bass(bpm: f64, bass: f64) -> LoadedTrack {
     LoadedTrack {
         sidecar_path: PathBuf::new(),
         sidecar: sc,
-    }
-}
-
-fn standard_plan() -> TransitionPlan {
-    TransitionPlan {
-        outgoing_crossfade_start_seconds: 200.0,
-        incoming_crossfade_start_seconds: 16.0,
-        length_bars: 16,
-        use_eq_swap: true,
-        skip_tempo_align: false,
     }
 }
 
@@ -289,135 +278,6 @@ fn ctx_for<'a>(
         ratio: 1.0,
         ratio_global: 1.0,
     }
-}
-
-#[test]
-fn bass_swap_default_step_swap_on_midpoint_downbeat() {
-    let out_track = track_with_bass(120.0, 0.4);
-    let in_track = track_with_bass(120.0, 0.4);
-    let plan = standard_plan();
-    let ctx = ctx_for(&out_track, &in_track, &plan);
-    let r = BassSwap.build(&ctx);
-    let bar_seconds = (60.0_f64 / 120.0) * 4.0;
-    let kill_bar = plan.length_bars as f64 / 2.0;
-    let kill_frame = (kill_bar * bar_seconds * SR as f64) as u64;
-
-    // Outgoing: Fader EqualPowerOut starting at kill_bar + EqLow Step at kill_bar.
-    assert_eq!(r.outgoing_automations.len(), 2);
-    let out_fader = r
-        .outgoing_automations
-        .iter()
-        .find(|a| a.target == AutomationTarget::Fader)
-        .expect("outgoing fader");
-    assert_eq!(out_fader.curve, Curve::EqualPowerOut);
-    assert!((out_fader.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
-    let out_eqlow = r
-        .outgoing_automations
-        .iter()
-        .find(|a| a.target == AutomationTarget::EqLow)
-        .expect("outgoing eqlow");
-    assert_eq!(out_eqlow.curve, Curve::Step);
-    assert_eq!(out_eqlow.to, -40.0);
-    assert!((out_eqlow.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
-
-    // Incoming: Fader Step at bar 0 + Tempo Step + two EqLow Steps (init at 0, release at kill_bar).
-    assert_eq!(r.incoming_automations.len(), 4);
-    let in_eqlow_steps: Vec<_> = r
-        .incoming_automations
-        .iter()
-        .filter(|a| a.target == AutomationTarget::EqLow)
-        .collect();
-    assert_eq!(in_eqlow_steps.len(), 2);
-    let init = in_eqlow_steps
-        .iter()
-        .find(|a| (a.to - (-40.0)).abs() < 1e-9)
-        .expect("incoming init kill");
-    let release = in_eqlow_steps
-        .iter()
-        .find(|a| a.to.abs() < 1e-9)
-        .expect("incoming release");
-    assert_eq!(init.curve, Curve::Step);
-    assert_eq!(release.curve, Curve::Step);
-    assert!((init.t_start_frames as f64).abs() < 10.0);
-    assert!((release.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
-}
-
-#[test]
-fn bass_swap_bass_light_pair_skips_eq() {
-    let out_track = track_with_bass(120.0, 0.2);
-    let in_track = track_with_bass(120.0, 0.25);
-    let plan = standard_plan();
-    let ctx = ctx_for(&out_track, &in_track, &plan);
-    let r = BassSwap.build(&ctx);
-    // No EqLow automations on either deck.
-    assert!(!r
-        .outgoing_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::EqLow));
-    assert!(!r
-        .incoming_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::EqLow));
-    // Shape matches EqualPowerCrossfade: outgoing Fader; incoming Fader + Tempo Step.
-    assert_eq!(r.outgoing_automations.len(), 1);
-    assert_eq!(r.incoming_automations.len(), 2);
-}
-
-#[test]
-fn bass_swap_bass_heavy_pair_also_steps_at_midpoint() {
-    // The new BassSwap uses the same midpoint-downbeat step regardless of bass
-    // heaviness; the old wider-window-for-bass-heavy logic is gone. This test
-    // just asserts the bass-heavy case still produces a Step swap at L/2.
-    let out_track = track_with_bass(120.0, 0.7);
-    let in_track = track_with_bass(120.0, 0.8);
-    let plan = standard_plan();
-    let ctx = ctx_for(&out_track, &in_track, &plan);
-    let r = BassSwap.build(&ctx);
-    let bar_seconds = (60.0_f64 / 120.0) * 4.0;
-    let kill_frame = (plan.length_bars as f64 / 2.0 * bar_seconds * SR as f64) as u64;
-    let out_eqlow = r
-        .outgoing_automations
-        .iter()
-        .find(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Step)
-        .expect("outgoing kill Step");
-    assert!((out_eqlow.t_start_frames as f64 - kill_frame as f64).abs() < 10.0);
-    assert_eq!(out_eqlow.to, -40.0);
-}
-
-#[test]
-fn bass_swap_missing_band_energy_treated_as_default() {
-    // band_energy_means = None on either track → treat as 0.5 → step swap (not bass-light fallback).
-    let mut out_track = track_with_bass(120.0, 0.4);
-    out_track.sidecar.band_energy_means = None;
-    let mut in_track = track_with_bass(120.0, 0.4);
-    in_track.sidecar.band_energy_means = None;
-    let plan = standard_plan();
-    let ctx = ctx_for(&out_track, &in_track, &plan);
-    let r = BassSwap.build(&ctx);
-    // Has EqLow Step automations (not the bass-light fallback that would have no EqLow at all).
-    let has_step_swap = r
-        .outgoing_automations
-        .iter()
-        .any(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Step);
-    assert!(
-        has_step_swap,
-        "missing band_energy treated as default → step swap fires"
-    );
-}
-
-#[test]
-fn pick_recipe_routes_use_eq_swap_to_bass_swap() {
-    let plan = TransitionPlan {
-        outgoing_crossfade_start_seconds: 0.0,
-        incoming_crossfade_start_seconds: 0.0,
-        length_bars: 16,
-        use_eq_swap: true,
-        skip_tempo_align: false,
-    };
-    assert_eq!(
-        dj_engine::recipe::pick_recipe_plan_only(&plan),
-        RecipeChoice::BassSwap
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -564,24 +424,6 @@ fn score_equal_power_is_baseline_half() {
 }
 
 #[test]
-fn score_bass_swap_high_when_both_heavy_and_phrase_aligned() {
-    let mut i = inputs_default();
-    i.outgoing_bass = 0.7;
-    i.incoming_bass = 0.7;
-    i.phrase_aligned = true;
-    assert!(score_recipe(RecipeChoice::BassSwap, &i) > 0.8);
-}
-
-#[test]
-fn score_bass_swap_low_when_not_phrase_aligned() {
-    let mut i = inputs_default();
-    i.outgoing_bass = 0.7;
-    i.incoming_bass = 0.7;
-    i.phrase_aligned = false;
-    assert!(score_recipe(RecipeChoice::BassSwap, &i) < 0.2);
-}
-
-#[test]
 fn score_filter_fade_rises_with_energy_boost() {
     // FilterFade is now the always-selectable default crossfade with 4 tiers
     // (0.30 / 0.55 / 0.70 / 0.85). Floor is 0.30 — never 0 — so it can beat
@@ -713,34 +555,6 @@ fn scored_picks_hard_cut_when_length_zero() {
 }
 
 #[test]
-fn scored_picks_bass_swap_for_heavy_aligned_pair_no_recency() {
-    let (a, b) = bass_heavy_phrase_aligned_pair();
-    let plan = standard_blend_plan();
-    let recency = RecipeRecency::new(5);
-    // BassSwap (0.85) is the top-scoring recipe for bass-heavy phrase-aligned
-    // pairs without stems. BassSwapStemAware needs stems; RhythmSwap needs
-    // stems + heavy drum density.
-    let pick = pick_recipe(&plan, &a, &b, &recency);
-    assert_eq!(pick, RecipeChoice::BassSwap, "expected BassSwap, got {pick:?}");
-}
-
-#[test]
-fn scored_skips_recent_bass_swap() {
-    let (a, b) = bass_heavy_phrase_aligned_pair();
-    let plan = standard_blend_plan();
-    let mut recency = RecipeRecency::new(5);
-    recency.record(RecipeChoice::BassSwap);
-    // Penalized to 0.85 * 0.5 = 0.425. Other un-penalized recipes will outrank it;
-    // we only assert the pick is NOT BassSwap.
-    let pick = pick_recipe(&plan, &a, &b, &recency);
-    assert_ne!(
-        pick,
-        RecipeChoice::BassSwap,
-        "should skip recently-used BassSwap"
-    );
-}
-
-#[test]
 fn scored_picks_filter_fade_for_big_energy_boost() {
     let mut a = track_with_bass(120.0, 0.5);
     let mut b = track_with_bass(120.0, 0.5);
@@ -783,7 +597,7 @@ fn pick_recipe_plan_only_preserved_for_legacy_tests() {
         use_eq_swap: true,
         skip_tempo_align: false,
     };
-    assert_eq!(pick_recipe_plan_only(&plan), RecipeChoice::BassSwap);
+    assert_eq!(pick_recipe_plan_only(&plan), RecipeChoice::RhythmSwap);
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,25 +828,6 @@ fn score_drop_big_ramp_up() {
         incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::Drop, &inputs) - 0.75).abs() < 1e-9);
-}
-
-#[test]
-fn score_bass_swap_stem_aware_beats_basic_bass_swap_when_stems() {
-    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
-    let inputs = PairScoreInputs {
-        length_bars: 16,
-        use_eq_swap: true,
-        energy_delta: 0.0,
-        outgoing_bass: 0.7,
-        incoming_bass: 0.7,
-        phrase_aligned: true,
-        stems_available: true,
-        outgoing_drum_density_mean: 0.0,
-        incoming_drum_density_mean: 0.0,
-    };
-    let stem_aware = score_recipe(RecipeChoice::BassSwapStemAware, &inputs);
-    let basic = score_recipe(RecipeChoice::BassSwap, &inputs);
-    assert!(stem_aware > basic, "stem_aware={stem_aware} basic={basic}");
 }
 
 #[test]

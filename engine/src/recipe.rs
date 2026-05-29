@@ -159,7 +159,7 @@ pub fn inject_pitch_journey(
 }
 
 use crate::automation::Curve;
-use crate::recipe_script::{bar, bars, DeckRole, EqBand, Phase, TransitionScript};
+use crate::recipe_script::{bar, bars, DeckRole, Phase, TransitionScript};
 
 pub struct EqualPowerCrossfade;
 
@@ -236,133 +236,6 @@ impl Recipe for HardCut {
         TransitionScript {
             length_bars: 0,
             phases,
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
-}
-
-/// `BassSwap`: equal-power crossfade with EqLow automations on both decks that
-/// kill the outgoing low end before bringing in the incoming one. Window timing
-/// adapts to each track's `band_energy_means.bass`:
-///
-/// - Both bass-light (< 0.3): falls back to a plain equal-power crossfade.
-/// - Both bass-heavy (> 0.5): widens the gap so big basslines clear cleanly.
-/// - Otherwise: default window.
-///
-/// Missing `band_energy_means` is treated as 0.5 (default window).
-pub struct BassSwap;
-
-impl Recipe for BassSwap {
-    fn name(&self) -> &'static str {
-        "bass_swap_crossfade"
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        let ratio = ctx.ratio;
-        let l = ctx.plan.length_bars as f64;
-
-        let outgoing_bass = ctx
-            .outgoing
-            .sidecar
-            .band_energy_means
-            .as_ref()
-            .map(|b| b.bass)
-            .unwrap_or(0.5);
-        let incoming_bass = ctx
-            .incoming
-            .sidecar
-            .band_energy_means
-            .as_ref()
-            .map(|b| b.bass)
-            .unwrap_or(0.5);
-
-        // Both bass-light → no bass-swap gesture needed; plain equal-power
-        // crossfade keeps the recipe usable on tracks with little low end.
-        if outgoing_bass < 0.3 && incoming_bass < 0.3 {
-            return TransitionScript {
-                length_bars: ctx.plan.length_bars,
-                phases: vec![
-                    Phase::TempoAlign {
-                        deck: DeckRole::Incoming,
-                        ratio,
-                    },
-                    Phase::Fader {
-                        deck: DeckRole::Outgoing,
-                        from: 1.0,
-                        to: 0.0,
-                        span: bars(0.0, l),
-                        curve: Curve::EqualPowerOut,
-                    },
-                    Phase::Fader {
-                        deck: DeckRole::Incoming,
-                        from: 0.0,
-                        to: 1.0,
-                        span: bars(0.0, l),
-                        curve: Curve::EqualPowerIn,
-                    },
-                ],
-                outgoing_init: None,
-                incoming_init: None,
-            };
-        }
-
-        // Real-DJ bass swap. Both decks playing at full volume for the first
-        // half, incoming bass-killed via EqLow. At the midpoint downbeat: a
-        // simultaneous Step swap — outgoing bass dies, incoming bass enters,
-        // listener feels the gesture in a single beat. Then outgoing fades
-        // out equal-power over the second half.
-        let kill_bar = (l / 2.0).floor(); // L=8 → 4, L=16 → 8, L=32 → 16 — all downbeats
-
-        TransitionScript {
-            length_bars: ctx.plan.length_bars,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                // Incoming Step to full volume at bar 0. Its bass is killed
-                // via EqLow Step on the next phase, so listener hears the
-                // mid+high content of incoming layered over outgoing's full
-                // mix during the first half.
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 1.0,
-                    to: 1.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Low,
-                    value_db: -40.0,
-                    at: bar(0.0),
-                },
-                // THE MOMENT: simultaneous Step on the midpoint downbeat.
-                Phase::EqStep {
-                    deck: DeckRole::Outgoing,
-                    band: EqBand::Low,
-                    value_db: -40.0,
-                    at: bar(kill_bar),
-                },
-                Phase::EqStep {
-                    deck: DeckRole::Incoming,
-                    band: EqBand::Low,
-                    value_db: 0.0,
-                    at: bar(kill_bar),
-                },
-                // Outgoing fader: held at 1.0 by default until kill_bar
-                // (no automation needed — deck arrives at this transition
-                // with fader already at 1.0 from playing as master). Then
-                // equal-power-out over the second half.
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(kill_bar, l),
-                    curve: Curve::EqualPowerOut,
-                },
-            ],
             outgoing_init: None,
             incoming_init: None,
         }
@@ -604,143 +477,6 @@ impl Recipe for Drop {
     }
 }
 
-/// First index in `density[lo..hi]` where `density[i] >= threshold`. Returns
-/// the last index of the slice when no bar passes. Returns `None` for empty
-/// input or `lo >= hi`.
-/// Returns `Some(i)` for the first bar in `[lo, hi)` whose `density[i] >= threshold`.
-/// Returns `None` when no bar in the range passes the threshold (or the range is
-/// empty / past the end of the array). Callers handle the no-peak case explicitly —
-/// e.g., fall back to plain equal-power behavior rather than snapping to an
-/// arbitrary bar at the end of the window.
-fn first_bar_at_or_above(density: &[f64], lo: usize, hi: usize, threshold: f64) -> Option<usize> {
-    let hi = hi.min(density.len());
-    if lo >= hi {
-        return None;
-    }
-    for (i, v) in density.iter().enumerate().take(hi).skip(lo) {
-        if *v >= threshold {
-            return Some(i);
-        }
-    }
-    None
-}
-
-/// `BassSwapStemAware`: 16-bar equal-power crossfade, with bass-stem kill/release
-/// timed to actual bass-density structure from the analyzer's per-bar density
-/// arrays. Outgoing's bass stem cuts off at the lowest-bass-density bar in
-/// the last quarter of the window; incoming's bass stem comes in at the first
-/// bar within the window where its bass_density >= 0.7 (with a fallback to
-/// bar 2 if the bass is uniformly low). All other stems crossfade equal-power
-/// across the full window on the mixed fader.
-pub struct BassSwapStemAware;
-
-impl Recipe for BassSwapStemAware {
-    fn name(&self) -> &'static str {
-        "bass_swap_stem_aware"
-    }
-
-    fn requires_stems(&self) -> bool {
-        true
-    }
-
-    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
-        use crate::deck::StemKind;
-        let incoming_bpm = ctx.incoming.sidecar.bpm.unwrap_or(120.0);
-        let ratio = ctx.ratio;
-        let l = 16.0_f64;
-
-        // Synchronized swap: pick a single bar for both outgoing's kill and
-        // incoming's release. This is the "real DJ" handoff — bass dies on
-        // deck A at the same beat it enters on deck B, no dead-zone gap.
-        //
-        // Choose the bar by finding incoming's first non-trivial bass-density
-        // entry (0.35 catches gradual buildups; 0.7 was too peak-level and
-        // produced multi-bar gaps on tracks with quiet intros). If incoming
-        // never crosses the threshold within the search window, fall back to
-        // bar 8 (mid-window) — a neutral default that still gives both decks
-        // half a window of "with bass" and half of "after bass swap".
-        let incoming_bar_seconds = (60.0 / incoming_bpm) * 4.0;
-        let incoming_intro_bar =
-            (ctx.plan.incoming_crossfade_start_seconds / incoming_bar_seconds) as usize;
-        let incoming_bass_density = ctx
-            .incoming
-            .sidecar
-            .stems
-            .as_ref()
-            .map(|s| s.bass_density.clone())
-            .unwrap_or_default();
-
-        let incoming_release_bar_track = first_bar_at_or_above(
-            &incoming_bass_density,
-            incoming_intro_bar,
-            incoming_intro_bar + 16,
-            0.35,
-        );
-        let swap_bar_window = incoming_release_bar_track
-            .map(|b| (b.saturating_sub(incoming_intro_bar)) as f64)
-            .unwrap_or(8.0)
-            .clamp(2.0, l - 1.0); // never bar 0 (no time to crossfade) or last (instant cut)
-
-        // outgoing_kill_bar = incoming_release_bar = swap_bar_window. Both
-        // step automations fire at the same bar of the transition window.
-        let outgoing_kill_bar_window = swap_bar_window;
-        let incoming_release_bar_window = swap_bar_window;
-
-        TransitionScript {
-            length_bars: 16,
-            phases: vec![
-                Phase::TempoAlign {
-                    deck: DeckRole::Incoming,
-                    ratio,
-                },
-                // Equal-power crossfade on the mixed fader across the full window.
-                Phase::Fader {
-                    deck: DeckRole::Outgoing,
-                    from: 1.0,
-                    to: 0.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerOut,
-                },
-                Phase::Fader {
-                    deck: DeckRole::Incoming,
-                    from: 0.0,
-                    to: 1.0,
-                    span: bars(0.0, l),
-                    curve: Curve::EqualPowerIn,
-                },
-                // Incoming bass stem: muted from bar 0 until release.
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Bass,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(0.0, 0.0),
-                    curve: Curve::Step,
-                },
-                Phase::StemFader {
-                    deck: DeckRole::Incoming,
-                    stem: StemKind::Bass,
-                    from: 1.0,
-                    to: 1.0,
-                    span: bars(incoming_release_bar_window, incoming_release_bar_window),
-                    curve: Curve::Step,
-                },
-                // Outgoing bass stem: killed at the valley bar.
-                Phase::StemFader {
-                    deck: DeckRole::Outgoing,
-                    stem: StemKind::Bass,
-                    from: 0.0,
-                    to: 0.0,
-                    span: bars(outgoing_kill_bar_window, outgoing_kill_bar_window),
-                    curve: Curve::Step,
-                },
-            ],
-            outgoing_init: None,
-            incoming_init: None,
-        }
-    }
-}
-
 /// `RhythmSwap`: stems-aware transition. Two-phase gesture:
 /// 1. Bars [0, L/2]: subtle rhythm reveal. Outgoing's drums + bass fade out;
 ///    incoming's drums + bass fade in simultaneously. Outgoing's vocals + other
@@ -884,12 +620,10 @@ impl Recipe for RhythmSwap {
 pub enum RecipeChoice {
     EqualPower,
     HardCut,
-    BassSwap,
     FilterFade,
     FilterKill,
     LoopOut,
     Drop,
-    BassSwapStemAware,
     RhythmSwap,
 }
 
@@ -898,7 +632,7 @@ pub fn pick_recipe_plan_only(plan: &TransitionPlan) -> RecipeChoice {
     if plan.length_bars == 0 {
         RecipeChoice::HardCut
     } else if plan.use_eq_swap {
-        RecipeChoice::BassSwap
+        RecipeChoice::RhythmSwap
     } else {
         RecipeChoice::EqualPower
     }
@@ -918,12 +652,10 @@ pub fn pick_recipe_with_scores(
     let inputs = PairScoreInputs::from_pair(plan, outgoing, incoming);
     let candidates = [
         RecipeChoice::EqualPower,
-        RecipeChoice::BassSwap,
         RecipeChoice::FilterFade,
         RecipeChoice::FilterKill,
         RecipeChoice::LoopOut,
         RecipeChoice::Drop,
-        RecipeChoice::BassSwapStemAware,
         RecipeChoice::RhythmSwap,
     ];
     let jitter_range = 0.04;
@@ -961,12 +693,10 @@ pub fn pick_recipe(
     let inputs = PairScoreInputs::from_pair(plan, outgoing, incoming);
     let candidates = [
         RecipeChoice::EqualPower,
-        RecipeChoice::BassSwap,
         RecipeChoice::FilterFade,
         RecipeChoice::FilterKill,
         RecipeChoice::LoopOut,
         RecipeChoice::Drop,
-        RecipeChoice::BassSwapStemAware,
         RecipeChoice::RhythmSwap,
     ];
 
@@ -997,12 +727,10 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
     match c {
         RecipeChoice::EqualPower => 1,
         RecipeChoice::HardCut => 2,
-        RecipeChoice::BassSwap => 3,
         RecipeChoice::FilterFade => 4,
         RecipeChoice::FilterKill => 5,
         RecipeChoice::LoopOut => 7,
         RecipeChoice::Drop => 11,
-        RecipeChoice::BassSwapStemAware => 15,
         RecipeChoice::RhythmSwap => 17,
     }
 }
@@ -1014,12 +742,10 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
     for c in [
         RecipeChoice::EqualPower,
         RecipeChoice::HardCut,
-        RecipeChoice::BassSwap,
         RecipeChoice::FilterFade,
         RecipeChoice::FilterKill,
         RecipeChoice::LoopOut,
         RecipeChoice::Drop,
-        RecipeChoice::BassSwapStemAware,
         RecipeChoice::RhythmSwap,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
@@ -1123,17 +849,6 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             }
         }
         RecipeChoice::EqualPower => 0.10,
-        RecipeChoice::BassSwap => {
-            let both_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
-            let any_heavy = inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5;
-            if inputs.phrase_aligned && both_heavy {
-                0.85
-            } else if inputs.phrase_aligned && any_heavy {
-                0.45
-            } else {
-                0.10
-            }
-        }
         RecipeChoice::FilterFade => {
             // Always-selectable default crossfade. Higher score on energy-up,
             // but never falls to 0 — beats EqualPower's 0.10 floor.
@@ -1168,25 +883,11 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.10
             }
         }
-        RecipeChoice::BassSwapStemAware => {
-            let strong = inputs.stems_available
-                && inputs.phrase_aligned
-                && inputs.length_bars >= 16
-                && (inputs.outgoing_bass > 0.5 || inputs.incoming_bass > 0.5);
-            if strong {
-                0.92
-            } else if inputs.stems_available {
-                0.30
-            } else {
-                0.05
-            }
-        }
         RecipeChoice::RhythmSwap => {
-            let drum_density_delta = (inputs.outgoing_drum_density_mean
-                - inputs.incoming_drum_density_mean)
-                .abs();
-            let drums_heavy = inputs.outgoing_drum_density_mean > 0.5
-                && inputs.incoming_drum_density_mean > 0.5;
+            let drum_density_delta =
+                (inputs.outgoing_drum_density_mean - inputs.incoming_drum_density_mean).abs();
+            let drums_heavy =
+                inputs.outgoing_drum_density_mean > 0.5 && inputs.incoming_drum_density_mean > 0.5;
             let drums_similar = drum_density_delta < 0.15;
             let bass_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
             let energy_moderate = inputs.energy_delta.abs() < 0.20;

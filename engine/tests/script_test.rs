@@ -103,54 +103,6 @@ fn drop_emits_filter_buildup_and_release() {
 }
 
 #[test]
-fn bass_swap_stem_aware_emits_bass_stem_phases() {
-    use dj_engine::deck::StemKind;
-    use dj_engine::recipe::BassSwapStemAware;
-    let outgoing = track();
-    let incoming = track();
-    let p = plan(16);
-    let ctx = TransitionContext {
-        outgoing: &outgoing,
-        incoming: &incoming,
-        plan: &p,
-        master_clock_frames: 0,
-        outgoing_deck: DeckId::A,
-        incoming_deck: DeckId::B,
-        sample_rate: SR,
-        ratio: 1.0,
-        ratio_global: 1.0,
-    };
-    let script = BassSwapStemAware.build_script(&ctx);
-    assert_eq!(script.length_bars, 16);
-
-    // Outgoing bass stem killed somewhere — at least one bass-targeted StemFader on outgoing.
-    let has_outgoing_bass_kill = script.phases.iter().any(|ph| {
-        matches!(
-            ph,
-            Phase::StemFader {
-                deck: DeckRole::Outgoing,
-                stem: StemKind::Bass,
-                ..
-            }
-        )
-    });
-    assert!(has_outgoing_bass_kill);
-
-    // Incoming bass stem released somewhere.
-    let has_incoming_bass_release = script.phases.iter().any(|ph| {
-        matches!(
-            ph,
-            Phase::StemFader {
-                deck: DeckRole::Incoming,
-                stem: StemKind::Bass,
-                ..
-            }
-        )
-    });
-    assert!(has_incoming_bass_release);
-}
-
-#[test]
 fn rhythm_swap_emits_gradual_reveal_and_fast_handoff_phases() {
     use dj_engine::deck::StemKind;
     use dj_engine::recipe::{Recipe, RhythmSwap};
@@ -173,74 +125,90 @@ fn rhythm_swap_emits_gradual_reveal_and_fast_handoff_phases() {
     let script = RhythmSwap.build_script(&ctx);
 
     // Outgoing drums Linear ramp 1→0.
-    let out_drums_ramp = script.phases.iter().any(|p| matches!(
-        p,
-        Phase::StemFader {
-            deck: DeckRole::Outgoing,
-            stem: StemKind::Drums,
-            from,
-            to,
-            ..
-        } if (from - 1.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
-    ));
+    let out_drums_ramp = script.phases.iter().any(|p| {
+        matches!(
+            p,
+            Phase::StemFader {
+                deck: DeckRole::Outgoing,
+                stem: StemKind::Drums,
+                from,
+                to,
+                ..
+            } if (from - 1.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
+        )
+    });
     assert!(out_drums_ramp, "outgoing drums Linear ramp missing");
 
     // Incoming drums Linear ramp 0→1.
-    let in_drums_ramp = script.phases.iter().any(|p| matches!(
-        p,
-        Phase::StemFader {
-            deck: DeckRole::Incoming,
-            stem: StemKind::Drums,
-            from,
-            to,
-            ..
-        } if (from - 0.0).abs() < 1e-9 && (to - 1.0).abs() < 1e-9
-    ));
+    let in_drums_ramp = script.phases.iter().any(|p| {
+        matches!(
+            p,
+            Phase::StemFader {
+                deck: DeckRole::Incoming,
+                stem: StemKind::Drums,
+                from,
+                to,
+                ..
+            } if (from - 0.0).abs() < 1e-9 && (to - 1.0).abs() < 1e-9
+        )
+    });
     assert!(in_drums_ramp, "incoming drums Linear ramp missing");
 
     // Incoming vocals Step mute at bar 0.
-    let in_vocals_mute = script.phases.iter().any(|p| matches!(
-        p,
-        Phase::StemFader {
-            deck: DeckRole::Incoming,
-            stem: StemKind::Vocals,
-            from,
-            to,
-            span,
-            ..
-        } if (from - 0.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
-              && (span.start.bars - 0.0).abs() < 1e-9
-    ));
+    let in_vocals_mute = script.phases.iter().any(|p| {
+        matches!(
+            p,
+            Phase::StemFader {
+                deck: DeckRole::Incoming,
+                stem: StemKind::Vocals,
+                from,
+                to,
+                span,
+                ..
+            } if (from - 0.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
+                  && (span.start.bars - 0.0).abs() < 1e-9
+        )
+    });
     assert!(in_vocals_mute, "incoming vocals mute Step at bar 0 missing");
 
     // Vocal handoff Steps at bar 8 (swap_bar = L/2 for L=16).
-    let outgoing_vocals_off_at_8 = script.phases.iter().any(|p| matches!(
-        p,
-        Phase::StemFader {
-            deck: DeckRole::Outgoing,
-            stem: StemKind::Vocals,
-            from,
-            to,
-            span,
-            ..
-        } if (from - 0.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
-              && (span.start.bars - 8.0).abs() < 1e-9
-    ));
-    assert!(outgoing_vocals_off_at_8, "outgoing vocals OFF Step at bar 8 missing");
+    let outgoing_vocals_off_at_8 = script.phases.iter().any(|p| {
+        matches!(
+            p,
+            Phase::StemFader {
+                deck: DeckRole::Outgoing,
+                stem: StemKind::Vocals,
+                from,
+                to,
+                span,
+                ..
+            } if (from - 0.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
+                  && (span.start.bars - 8.0).abs() < 1e-9
+        )
+    });
+    assert!(
+        outgoing_vocals_off_at_8,
+        "outgoing vocals OFF Step at bar 8 missing"
+    );
 
-    let incoming_vocals_on_at_8 = script.phases.iter().any(|p| matches!(
-        p,
-        Phase::StemFader {
-            deck: DeckRole::Incoming,
-            stem: StemKind::Vocals,
-            from,
-            to,
-            span,
-            ..
-        } if (from - 1.0).abs() < 1e-9 && (to - 1.0).abs() < 1e-9
-              && (span.start.bars - 8.0).abs() < 1e-9
-    ));
-    assert!(incoming_vocals_on_at_8, "incoming vocals ON Step at bar 8 missing");
+    let incoming_vocals_on_at_8 = script.phases.iter().any(|p| {
+        matches!(
+            p,
+            Phase::StemFader {
+                deck: DeckRole::Incoming,
+                stem: StemKind::Vocals,
+                from,
+                to,
+                span,
+                ..
+            } if (from - 1.0).abs() < 1e-9 && (to - 1.0).abs() < 1e-9
+                  && (span.start.bars - 8.0).abs() < 1e-9
+        )
+    });
+    assert!(
+        incoming_vocals_on_at_8,
+        "incoming vocals ON Step at bar 8 missing"
+    );
 }
 
 #[test]
@@ -248,4 +216,3 @@ fn rhythm_swap_requires_stems_is_true() {
     use dj_engine::recipe::{Recipe, RhythmSwap};
     assert!(RhythmSwap.requires_stems());
 }
-
