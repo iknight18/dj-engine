@@ -1,15 +1,12 @@
-"""Beat-time detection. Given a known BPM, returns a list of beat onsets (seconds)."""
+"""Beat-time detection. Thin wrapper over detect_beat_grid (madmom RNN+DBN)."""
 
 from __future__ import annotations
 
-import librosa
 import numpy as np
 
+from .detect_beat_grid import detect_beat_grid
 
-def detect_beats(audio: np.ndarray, sr: int, bpm: float) -> list[float]:
-    """Return beat times in seconds, given a BPM estimate."""
-    _, beat_frames = librosa.beat.beat_track(
-        y=audio, sr=sr, start_bpm=bpm, tightness=100, units="frames"
-    )
-    times: np.ndarray = librosa.frames_to_time(beat_frames, sr=sr)
-    return [float(t) for t in times]
+
+def detect_beats(audio: np.ndarray, sr: int) -> list[float]:
+    """Return madmom-detected beat times in seconds. Non-uniform: snapped to onsets."""
+    return detect_beat_grid(audio, sr).beats
