@@ -585,6 +585,8 @@ fn inputs_default() -> PairScoreInputs {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     }
 }
 
@@ -781,6 +783,8 @@ fn score_three_band_swap_both_heavy_phrase_aligned_long() {
         incoming_bass: 0.6,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.90).abs() < 1e-9);
 }
@@ -796,6 +800,8 @@ fn score_three_band_swap_both_heavy_short_window() {
         incoming_bass: 0.6,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::ThreeBandSwap, &inputs) - 0.70).abs() < 1e-9);
 }
@@ -811,6 +817,8 @@ fn score_echo_throw_smooth_long() {
         incoming_bass: 0.4,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::EchoThrow, &inputs) - 0.65).abs() < 1e-9);
 }
@@ -826,6 +834,8 @@ fn score_highs_first_big_ramp_long() {
         incoming_bass: 0.4,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.85).abs() < 1e-9);
 }
@@ -841,6 +851,8 @@ fn score_highs_first_no_ramp_low_score() {
         incoming_bass: 0.4,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::HighsFirst, &inputs) - 0.10).abs() < 1e-9);
 }
@@ -1069,6 +1081,8 @@ fn score_drop_big_ramp_up() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::Drop, &inputs) - 0.75).abs() < 1e-9);
 }
@@ -1084,6 +1098,8 @@ fn score_breakdown_bridge_winddown() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::BreakdownBridge, &inputs) - 0.70).abs() < 1e-9);
 }
@@ -1099,6 +1115,8 @@ fn score_double_drop_jackpot() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::DoubleDrop, &inputs) - 0.80).abs() < 1e-9);
 }
@@ -1114,6 +1132,8 @@ fn score_vocal_overlay_strong_when_stems_and_aligned() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: true,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::VocalOverlay, &inputs) - 0.85).abs() < 1e-9);
 }
@@ -1129,6 +1149,8 @@ fn score_vocal_overlay_weak_without_stems() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::VocalOverlay, &inputs) - 0.05).abs() < 1e-9);
 }
@@ -1144,6 +1166,8 @@ fn score_bass_swap_stem_aware_beats_basic_bass_swap_when_stems() {
         incoming_bass: 0.7,
         phrase_aligned: true,
         stems_available: true,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     let stem_aware = score_recipe(RecipeChoice::BassSwapStemAware, &inputs);
     let basic = score_recipe(RecipeChoice::BassSwap, &inputs);
@@ -1161,6 +1185,8 @@ fn score_breakdown_into_drop_needs_stems_and_ramp_up() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: true,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::BreakdownIntoDrop, &strong) - 0.80).abs() < 1e-9);
 
@@ -1182,6 +1208,53 @@ fn score_double_drop_misses_when_energy_too_far() {
         incoming_bass: 0.5,
         phrase_aligned: true,
         stems_available: false,
+        outgoing_drum_density_mean: 0.0,
+        incoming_drum_density_mean: 0.0,
     };
     assert!((score_recipe(RecipeChoice::DoubleDrop, &inputs) - 0.05).abs() < 1e-9);
+}
+
+#[test]
+fn pair_score_inputs_includes_drum_density_means() {
+    use dj_engine::recipe::PairScoreInputs;
+    use dj_engine::sidecar::Stems;
+
+    let mut outgoing = track(120.0);
+    let mut incoming = track(120.0);
+
+    outgoing.sidecar.stems = Some(Stems {
+        drum_density: vec![0.8, 0.9, 0.7, 0.85],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+    incoming.sidecar.stems = Some(Stems {
+        drum_density: vec![0.2, 0.3, 0.1, 0.2],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+
+    let plan = standard_blend_plan();
+    let inputs = PairScoreInputs::from_pair(&plan, &outgoing, &incoming);
+    assert!((inputs.outgoing_drum_density_mean - 0.8125).abs() < 1e-9);
+    assert!((inputs.incoming_drum_density_mean - 0.2).abs() < 1e-9);
+}
+
+#[test]
+fn pair_score_inputs_drum_density_defaults_to_zero_when_stems_absent() {
+    use dj_engine::recipe::PairScoreInputs;
+
+    let outgoing = track(120.0);
+    let incoming = track(120.0);
+    let plan = standard_blend_plan();
+    let inputs = PairScoreInputs::from_pair(&plan, &outgoing, &incoming);
+    assert_eq!(inputs.outgoing_drum_density_mean, 0.0);
+    assert_eq!(inputs.incoming_drum_density_mean, 0.0);
 }

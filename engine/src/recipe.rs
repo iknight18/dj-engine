@@ -1592,6 +1592,10 @@ pub struct PairScoreInputs {
     /// True iff BOTH sidecars carry a `stems` block (drum/bass/vocal density,
     /// vocal segments). Stem-aware recipes refuse to fire without this.
     pub stems_available: bool,
+    /// Mean of the per-bar drum_density array for outgoing. 0.0 when stems absent.
+    pub outgoing_drum_density_mean: f64,
+    /// Mean of the per-bar drum_density array for incoming. 0.0 when stems absent.
+    pub incoming_drum_density_mean: f64,
 }
 
 impl PairScoreInputs {
@@ -1616,6 +1620,30 @@ impl PairScoreInputs {
             .unwrap_or(0.5);
         let phrase_aligned = outgoing.sidecar.phrase_aligned() && incoming.sidecar.phrase_aligned();
         let stems_available = outgoing.sidecar.stems.is_some() && incoming.sidecar.stems.is_some();
+        let outgoing_drum_density_mean = outgoing
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| {
+                if s.drum_density.is_empty() {
+                    0.0
+                } else {
+                    s.drum_density.iter().sum::<f64>() / s.drum_density.len() as f64
+                }
+            })
+            .unwrap_or(0.0);
+        let incoming_drum_density_mean = incoming
+            .sidecar
+            .stems
+            .as_ref()
+            .map(|s| {
+                if s.drum_density.is_empty() {
+                    0.0
+                } else {
+                    s.drum_density.iter().sum::<f64>() / s.drum_density.len() as f64
+                }
+            })
+            .unwrap_or(0.0);
         Self {
             length_bars: plan.length_bars,
             use_eq_swap: plan.use_eq_swap,
@@ -1624,6 +1652,8 @@ impl PairScoreInputs {
             incoming_bass,
             phrase_aligned,
             stems_available,
+            outgoing_drum_density_mean,
+            incoming_drum_density_mean,
         }
     }
 }
