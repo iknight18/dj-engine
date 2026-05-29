@@ -69,6 +69,8 @@ fn make_ctx<'a>(
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     }
 }
 

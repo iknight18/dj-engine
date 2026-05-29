@@ -80,6 +80,8 @@ fn equal_power_same_bpm_emits_one_out_two_in_no_ramp() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let r = EqualPowerCrossfade.build(&ctx);
     assert_eq!(r.outgoing_automations.len(), 1);
@@ -124,6 +126,8 @@ fn equal_power_diff_bpm_has_journey_ramp_only_when_in_band() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let r = build_and_compile(&EqualPowerCrossfade, &ctx);
     assert_eq!(r.outgoing_automations.len(), 1);
@@ -165,6 +169,8 @@ fn equal_power_crossfade_length_matches_plan() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let r = EqualPowerCrossfade.build(&ctx);
     let bar_seconds = (60.0_f64 / 120.0) * 4.0;
@@ -195,6 +201,8 @@ fn hard_cut_emits_step_automations() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let r = HardCut.build(&ctx);
     assert_eq!(r.outgoing_automations.len(), 1);
@@ -278,6 +286,8 @@ fn ctx_for<'a>(
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     }
 }
 
@@ -389,7 +399,10 @@ fn bass_swap_missing_band_energy_treated_as_default() {
         .outgoing_automations
         .iter()
         .any(|a| a.target == AutomationTarget::EqLow && a.curve == Curve::Step);
-    assert!(has_step_swap, "missing band_energy treated as default → step swap fires");
+    assert!(
+        has_step_swap,
+        "missing band_energy treated as default → step swap fires"
+    );
 }
 
 #[test]
@@ -859,6 +872,8 @@ fn build_and_compile_injects_tempo_ramp_for_modest_ratio() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
@@ -899,6 +914,8 @@ fn build_and_compile_does_not_inject_for_identical_bpm() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
@@ -933,6 +950,8 @@ fn build_and_compile_does_not_inject_for_large_ratio() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let out = build_and_compile(&EqualPowerCrossfade, &ctx);
 
@@ -970,6 +989,8 @@ fn build_and_compile_does_not_inject_when_skip_tempo_align() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let out = build_and_compile(&dj_engine::recipe::HardCut, &ctx);
 
@@ -1007,6 +1028,8 @@ fn inject_pitch_journey_is_idempotent() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let mut script = EqualPowerCrossfade.build_script(&ctx);
     inject_pitch_journey(&mut script, &ctx);

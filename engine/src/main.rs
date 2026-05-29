@@ -89,7 +89,9 @@ async fn main() -> anyhow::Result<()> {
         let deck = mixer.deck(dj_engine::deck::DeckId::A);
         if seed.sidecar.stems.is_some() {
             match deck.cue_stems(seed.clone(), cue_in, 1.0).await {
-                Ok(()) => info!(track = %short_name(&seed.sidecar.source_path), "seed cued in stems mode"),
+                Ok(()) => {
+                    info!(track = %short_name(&seed.sidecar.source_path), "seed cued in stems mode")
+                }
                 Err(e) => {
                     warn!(error = %e, "cue_stems failed for seed; falling back to mixed");
                     deck.cue(seed.clone(), cue_in, 1.0).await?;
@@ -244,9 +246,27 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
             dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
         };
-        let outgoing_bpm = current.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
+        let outgoing_global_bpm = current.sidecar.bpm.unwrap_or(120.0);
+        let incoming_global_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_global_bpm);
+        // Mirror scheduler::arm's local-section averaging window so the log
+        // shows the same ratio the scheduler will actually use.
+        let bar_seconds_log = (60.0 / outgoing_global_bpm) * 4.0;
+        let length_seconds_log = (plan.length_bars as f64) * bar_seconds_log;
+        let outgoing_section_bpm = current.sidecar.local_bpm_in_window(
+            plan.outgoing_crossfade_start_seconds,
+            plan.outgoing_crossfade_start_seconds + length_seconds_log,
+        );
+        let incoming_section_bpm = next_track.sidecar.local_bpm_in_window(
+            plan.incoming_crossfade_start_seconds,
+            plan.incoming_crossfade_start_seconds + length_seconds_log,
+        );
+        let section_ratio = dj_engine::recipe::compute_section_ratio(
+            outgoing_section_bpm,
+            outgoing_global_bpm,
+            incoming_section_bpm,
+            incoming_global_bpm,
+        );
+        let ratio = section_ratio.ratio_local;
         let transition_start_master = mixer.master_clock_frames();
         let transition_type = transition_type_label(plan.length_bars, plan.use_eq_swap);
         // Compact score string: "equal_power=0.51 bass_swap=0.84 ..."
@@ -264,7 +284,13 @@ async fn main() -> anyhow::Result<()> {
             recipe = recipe_name,
             length_bars = plan.length_bars,
             use_eq_swap = plan.use_eq_swap,
-            ratio,
+            ratio_local = section_ratio.ratio_local,
+            ratio_global = section_ratio.ratio_global,
+            bpm_delta_pct = (section_ratio.ratio_local - section_ratio.ratio_global).abs()
+                / section_ratio.ratio_global.max(1e-9)
+                * 100.0,
+            outgoing_section_bpm = outgoing_section_bpm.unwrap_or(f64::NAN),
+            incoming_section_bpm = incoming_section_bpm.unwrap_or(f64::NAN),
             outgoing_outro_start = plan.outgoing_crossfade_start_seconds,
             incoming_intro_end = plan.incoming_crossfade_start_seconds,
             t_start_frames = transition_start_master,

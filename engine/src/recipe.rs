@@ -14,6 +14,11 @@ pub struct TransitionContext<'a> {
     pub outgoing_deck: DeckId,
     pub incoming_deck: DeckId,
     pub sample_rate: u32,
+    /// Precomputed ratio used by recipes. Reflects local section BPM when
+    /// available, else global. Logged as `ratio_local`.
+    pub ratio: f64,
+    /// The old global-BPM ratio, kept for observability logging.
+    pub ratio_global: f64,
 }
 
 /// Static per-deck effect configuration applied by the scheduler after `cue()`
@@ -35,6 +40,37 @@ pub struct RecipeOutput {
     pub outgoing_init: Option<DeckInitConfig>,
     pub incoming_init: Option<DeckInitConfig>,
     pub total_duration_frames: u64,
+}
+
+/// Result of computing both the new (local-section) and old (global) ratios
+/// for a transition. The scheduler stashes both on TransitionContext and logs
+/// them at arming.
+#[derive(Clone, Copy, Debug)]
+pub struct SectionRatio {
+    pub ratio_local: f64,
+    pub ratio_global: f64,
+}
+
+/// Compute the time-stretch ratio from local section BPMs with global fallback.
+///
+/// - When both section BPMs are `Some`, the local ratio is `outgoing / incoming`.
+/// - When either is `None`, falls back to the global ratio for the local field.
+/// - The global field is always `outgoing_global / incoming_global`.
+pub fn compute_section_ratio(
+    outgoing_section_bpm: Option<f64>,
+    outgoing_global_bpm: f64,
+    incoming_section_bpm: Option<f64>,
+    incoming_global_bpm: f64,
+) -> SectionRatio {
+    let ratio_global = outgoing_global_bpm / incoming_global_bpm.max(1.0);
+    let ratio_local = match (outgoing_section_bpm, incoming_section_bpm) {
+        (Some(o), Some(i)) => o / i.max(1.0),
+        _ => ratio_global,
+    };
+    SectionRatio {
+        ratio_local,
+        ratio_global,
+    }
 }
 
 pub trait Recipe {

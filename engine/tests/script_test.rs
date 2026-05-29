@@ -76,6 +76,8 @@ fn three_band_swap_16_bar_emits_expected_phase_shape() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = ThreeBandSwap.build_script(&ctx);
     assert_eq!(script.length_bars, 16);
@@ -104,7 +106,10 @@ fn three_band_swap_16_bar_emits_expected_phase_shape() {
         Phase::EqStep { deck: DeckRole::Incoming, band: EqBand::Mid, value_db, at }
             if value_db.abs() < 1e-9 && (at.bars - 9.0).abs() < 1e-9)
     });
-    assert!(has_mids_incoming_release, "incoming mids Step release at bar 9");
+    assert!(
+        has_mids_incoming_release,
+        "incoming mids Step release at bar 9"
+    );
 
     let has_bass_swap_outgoing = script.phases.iter().any(|p| {
         matches!(p,
@@ -136,6 +141,8 @@ fn three_band_swap_8_bar_swap_lands_at_bar_7() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = ThreeBandSwap.build_script(&ctx);
 
@@ -161,6 +168,8 @@ fn echo_throw_16_bar_emits_triangle_echo_mix() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = EchoThrow.build_script(&ctx);
     assert_eq!(script.length_bars, 16);
@@ -204,6 +213,8 @@ fn highs_first_16_bar_bass_swap_at_bar_12() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = HighsFirst.build_script(&ctx);
     assert_eq!(script.length_bars, 16);
@@ -251,6 +262,8 @@ fn drop_emits_filter_buildup_and_release() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = Drop.build_script(&ctx);
     assert_eq!(script.length_bars, 4);
@@ -288,6 +301,8 @@ fn breakdown_bridge_kills_outgoing_mids_and_bass() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = BreakdownBridge.build_script(&ctx);
     assert_eq!(script.length_bars, 4);
@@ -330,6 +345,8 @@ fn vocal_overlay_emits_stem_fader_phases() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = VocalOverlay.build_script(&ctx);
     assert_eq!(script.length_bars, 16);
@@ -368,6 +385,8 @@ fn bass_swap_stem_aware_emits_bass_stem_phases() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = BassSwapStemAware.build_script(&ctx);
     assert_eq!(script.length_bars, 16);
@@ -414,6 +433,8 @@ fn breakdown_into_drop_emits_drum_breakdown_and_drop() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = BreakdownIntoDrop.build_script(&ctx);
     assert_eq!(script.length_bars, 8);
@@ -449,6 +470,8 @@ fn double_drop_holds_silence_then_both_play() {
         outgoing_deck: DeckId::A,
         incoming_deck: DeckId::B,
         sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
     };
     let script = DoubleDrop.build_script(&ctx);
     assert_eq!(script.length_bars, 2);

@@ -86,3 +86,28 @@ async fn arm_cues_incoming_and_schedules_automations() {
     );
     assert_eq!(handle.recipe_name, "equal_power_crossfade");
 }
+
+#[test]
+fn ratio_uses_local_section_bpm_when_present() {
+    use dj_engine::recipe::compute_section_ratio;
+
+    // Outgoing has local_bpm 130 in its outro window; global BPM is 120.
+    // Incoming has local_bpm 125 in its intro window; global BPM is 124.
+    let result = compute_section_ratio(
+        /*outgoing_section_bpm=*/ Some(130.0),
+        /*outgoing_global_bpm=*/ 120.0,
+        /*incoming_section_bpm=*/ Some(125.0),
+        /*incoming_global_bpm=*/ 124.0,
+    );
+    assert!((result.ratio_local - (130.0 / 125.0)).abs() < 1e-9);
+    assert!((result.ratio_global - (120.0 / 124.0)).abs() < 1e-9);
+}
+
+#[test]
+fn ratio_falls_back_to_global_when_section_missing() {
+    use dj_engine::recipe::compute_section_ratio;
+
+    let result = compute_section_ratio(None, 120.0, None, 124.0);
+    assert!((result.ratio_local - (120.0 / 124.0)).abs() < 1e-9);
+    assert!((result.ratio_global - (120.0 / 124.0)).abs() < 1e-9);
+}

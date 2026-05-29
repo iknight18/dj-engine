@@ -28,10 +28,31 @@ impl TransitionScheduler {
         plan: &TransitionPlan,
         recipe: &R,
     ) -> Result<TransitionHandle> {
-        let outgoing_bpm = outgoing.sidecar.bpm.unwrap_or(120.0);
-        let incoming_bpm = incoming.sidecar.bpm.unwrap_or(outgoing_bpm);
-        let ratio = outgoing_bpm / incoming_bpm.max(1.0);
-        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let outgoing_global_bpm = outgoing.sidecar.bpm.unwrap_or(120.0);
+        let incoming_global_bpm = incoming.sidecar.bpm.unwrap_or(outgoing_global_bpm);
+        let bar_seconds = (60.0 / outgoing_global_bpm) * 4.0;
+
+        // Determine the transition window on each track for local-BPM averaging.
+        let length_seconds = (plan.length_bars as f64) * bar_seconds;
+        let outgoing_window_start = plan.outgoing_crossfade_start_seconds;
+        let outgoing_window_end = outgoing_window_start + length_seconds;
+        let incoming_window_start = plan.incoming_crossfade_start_seconds;
+        let incoming_window_end = incoming_window_start + length_seconds;
+
+        let outgoing_section_bpm = outgoing
+            .sidecar
+            .local_bpm_in_window(outgoing_window_start, outgoing_window_end);
+        let incoming_section_bpm = incoming
+            .sidecar
+            .local_bpm_in_window(incoming_window_start, incoming_window_end);
+
+        let section_ratio = crate::recipe::compute_section_ratio(
+            outgoing_section_bpm,
+            outgoing_global_bpm,
+            incoming_section_bpm,
+            incoming_global_bpm,
+        );
+        let ratio = section_ratio.ratio_local;
         let cue_headroom_seconds = CUE_HEADROOM_BARS * bar_seconds;
         let cue_start = (plan.incoming_crossfade_start_seconds - cue_headroom_seconds).max(0.0);
 
@@ -114,6 +135,8 @@ impl TransitionScheduler {
             outgoing_deck,
             incoming_deck,
             sample_rate: SAMPLE_RATE,
+            ratio,
+            ratio_global: section_ratio.ratio_global,
         };
         let RecipeOutput {
             outgoing_automations,
