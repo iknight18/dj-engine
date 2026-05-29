@@ -64,6 +64,7 @@ pub enum ForceRecipe {
     VocalOverlay,
     BassSwapStemAware,
     BreakdownIntoDrop,
+    RhythmSwap,
 }
 
 impl ForceRecipe {
@@ -85,6 +86,7 @@ impl ForceRecipe {
             ForceRecipe::VocalOverlay => crate::recipe::RecipeChoice::VocalOverlay,
             ForceRecipe::BassSwapStemAware => crate::recipe::RecipeChoice::BassSwapStemAware,
             ForceRecipe::BreakdownIntoDrop => crate::recipe::RecipeChoice::BreakdownIntoDrop,
+            ForceRecipe::RhythmSwap => crate::recipe::RecipeChoice::RhythmSwap,
         }
     }
 }

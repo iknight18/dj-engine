@@ -1391,6 +1391,145 @@ impl Recipe for BreakdownIntoDrop {
     }
 }
 
+/// `RhythmSwap`: stems-aware transition. Two-phase gesture:
+/// 1. Bars [0, L/2]: subtle rhythm reveal. Outgoing's drums + bass fade out;
+///    incoming's drums + bass fade in simultaneously. Outgoing's vocals + other
+///    play on top throughout (incoming's vocals + other held muted).
+/// 2. Bar L/2 (phrase boundary): fast melody handoff. Outgoing's vocals + other
+///    Step → 0; incoming's vocals + other Step → 1. The rhythm section has
+///    already become incoming's, so the melody handoff feels like an arrival.
+///
+/// Only ONE melody is audible at any time. Avoids the layering-clash failure
+/// mode by construction.
+///
+/// Replaces both `BassSwap` (EQ-based) and `BassSwapStemAware` (bass-only) in
+/// the catalog consolidation.
+pub struct RhythmSwap;
+
+impl Recipe for RhythmSwap {
+    fn name(&self) -> &'static str {
+        "rhythm_swap"
+    }
+
+    fn requires_stems(&self) -> bool {
+        true
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        use crate::deck::StemKind;
+
+        let ratio = ctx.ratio;
+        let l = ctx.plan.length_bars as f64;
+        let swap_bar = l / 2.0;
+
+        TransitionScript {
+            length_bars: ctx.plan.length_bars,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(swap_bar, l),
+                    curve: Curve::EqualPowerOut,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Outgoing,
+                    stem: StemKind::Drums,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, swap_bar),
+                    curve: Curve::Linear,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Outgoing,
+                    stem: StemKind::Bass,
+                    from: 1.0,
+                    to: 0.0,
+                    span: bars(0.0, swap_bar),
+                    curve: Curve::Linear,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Drums,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, swap_bar),
+                    curve: Curve::Linear,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Bass,
+                    from: 0.0,
+                    to: 1.0,
+                    span: bars(0.0, swap_bar),
+                    curve: Curve::Linear,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Vocals,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Other,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Outgoing,
+                    stem: StemKind::Vocals,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(swap_bar, swap_bar),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Outgoing,
+                    stem: StemKind::Other,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(swap_bar, swap_bar),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Vocals,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(swap_bar, swap_bar),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Other,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(swap_bar, swap_bar),
+                    curve: Curve::Step,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,
@@ -1409,6 +1548,7 @@ pub enum RecipeChoice {
     VocalOverlay,
     BassSwapStemAware,
     BreakdownIntoDrop,
+    RhythmSwap,
 }
 
 /// Legacy plan-only picker. Kept for tests and as a reference baseline.
@@ -1450,6 +1590,7 @@ pub fn pick_recipe_with_scores(
         RecipeChoice::VocalOverlay,
         RecipeChoice::BassSwapStemAware,
         RecipeChoice::BreakdownIntoDrop,
+        RecipeChoice::RhythmSwap,
     ];
     let jitter_range = 0.04;
     let mut scored: Vec<(RecipeChoice, f64)> = Vec::with_capacity(candidates.len());
@@ -1500,6 +1641,7 @@ pub fn pick_recipe(
         RecipeChoice::VocalOverlay,
         RecipeChoice::BassSwapStemAware,
         RecipeChoice::BreakdownIntoDrop,
+        RecipeChoice::RhythmSwap,
     ];
 
     let mut best = (RecipeChoice::EqualPower, f64::MIN);
@@ -1543,6 +1685,7 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
         RecipeChoice::VocalOverlay => 14,
         RecipeChoice::BassSwapStemAware => 15,
         RecipeChoice::BreakdownIntoDrop => 16,
+        RecipeChoice::RhythmSwap => 17,
     }
 }
 
@@ -1567,6 +1710,7 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
         RecipeChoice::VocalOverlay,
         RecipeChoice::BassSwapStemAware,
         RecipeChoice::BreakdownIntoDrop,
+        RecipeChoice::RhythmSwap,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
         h = h
@@ -1813,6 +1957,34 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
             if strong {
                 0.80
             } else if inputs.stems_available {
+                0.20
+            } else {
+                0.05
+            }
+        }
+        RecipeChoice::RhythmSwap => {
+            let drum_density_delta = (inputs.outgoing_drum_density_mean
+                - inputs.incoming_drum_density_mean)
+                .abs();
+            let drums_heavy = inputs.outgoing_drum_density_mean > 0.5
+                && inputs.incoming_drum_density_mean > 0.5;
+            let drums_similar = drum_density_delta < 0.15;
+            let bass_heavy = inputs.outgoing_bass > 0.5 && inputs.incoming_bass > 0.5;
+            let energy_moderate = inputs.energy_delta.abs() < 0.20;
+            let layering_long_enough = inputs.length_bars >= 8;
+            let strong = inputs.stems_available
+                && inputs.phrase_aligned
+                && layering_long_enough
+                && drums_heavy
+                && drums_similar
+                && energy_moderate;
+            if strong && bass_heavy {
+                0.92
+            } else if strong {
+                0.75
+            } else if inputs.stems_available && layering_long_enough && drums_heavy {
+                0.40
+            } else if inputs.stems_available && layering_long_enough {
                 0.20
             } else {
                 0.05

@@ -245,6 +245,7 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::VocalOverlay => "vocal_overlay",
             dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
             dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
+            dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
         };
         let outgoing_global_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_global_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_global_bpm);
@@ -491,6 +492,18 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            dj_engine::recipe::RecipeChoice::RhythmSwap => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::RhythmSwap,
+                )
+                .await?
+            }
         };
 
         // Tick through the transition.
@@ -567,6 +580,7 @@ fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
         dj_engine::recipe::RecipeChoice::VocalOverlay => "vocal_overlay",
         dj_engine::recipe::RecipeChoice::BassSwapStemAware => "bass_swap_stem_aware",
         dj_engine::recipe::RecipeChoice::BreakdownIntoDrop => "breakdown_into_drop",
+        dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
     }
 }
 

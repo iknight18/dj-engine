@@ -1258,3 +1258,121 @@ fn pair_score_inputs_drum_density_defaults_to_zero_when_stems_absent() {
     assert_eq!(inputs.outgoing_drum_density_mean, 0.0);
     assert_eq!(inputs.incoming_drum_density_mean, 0.0);
 }
+
+// ---------------------------------------------------------------------------
+// RhythmSwap scoring tests (recipe catalog consolidation, task 2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn score_rhythm_swap_strong_drums_heavy_similar_and_aligned() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.7,
+        incoming_bass: 0.7,
+        phrase_aligned: true,
+        stems_available: true,
+        outgoing_drum_density_mean: 0.75,
+        incoming_drum_density_mean: 0.80,
+    };
+    let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
+    assert!((s - 0.92).abs() < 1e-9, "expected 0.92, got {s}");
+}
+
+#[test]
+fn score_rhythm_swap_drums_similar_but_bass_light_returns_0_75() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.3,
+        incoming_bass: 0.3,
+        phrase_aligned: true,
+        stems_available: true,
+        outgoing_drum_density_mean: 0.75,
+        incoming_drum_density_mean: 0.80,
+    };
+    let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
+    assert!((s - 0.75).abs() < 1e-9, "expected 0.75, got {s}");
+}
+
+#[test]
+fn score_rhythm_swap_drums_heavy_but_dissimilar_returns_0_40() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: true,
+        outgoing_drum_density_mean: 0.55,
+        incoming_drum_density_mean: 0.95,
+    };
+    let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
+    assert!((s - 0.40).abs() < 1e-9, "expected 0.40, got {s}");
+}
+
+#[test]
+fn score_rhythm_swap_drums_light_returns_0_20() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.5,
+        incoming_bass: 0.5,
+        phrase_aligned: true,
+        stems_available: true,
+        outgoing_drum_density_mean: 0.30,
+        incoming_drum_density_mean: 0.30,
+    };
+    let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
+    assert!((s - 0.20).abs() < 1e-9, "expected 0.20, got {s}");
+}
+
+#[test]
+fn score_rhythm_swap_short_length_returns_floor() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let inputs = PairScoreInputs {
+        length_bars: 4,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.7,
+        incoming_bass: 0.7,
+        phrase_aligned: true,
+        stems_available: true,
+        outgoing_drum_density_mean: 0.75,
+        incoming_drum_density_mean: 0.80,
+    };
+    let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
+    assert!((s - 0.05).abs() < 1e-9, "expected 0.05, got {s}");
+}
+
+#[test]
+fn score_rhythm_swap_no_stems_returns_floor() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let inputs = PairScoreInputs {
+        length_bars: 16,
+        use_eq_swap: true,
+        energy_delta: 0.05,
+        outgoing_bass: 0.7,
+        incoming_bass: 0.7,
+        phrase_aligned: true,
+        stems_available: false,
+        outgoing_drum_density_mean: 0.75,
+        incoming_drum_density_mean: 0.80,
+    };
+    let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
+    assert!((s - 0.05).abs() < 1e-9, "expected 0.05, got {s}");
+}
