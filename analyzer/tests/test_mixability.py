@@ -19,34 +19,21 @@ def test_clean_track_is_beatmatchable_and_phrase_aligned() -> None:
     assert result["reasons"] == []
 
 
-def test_librosa_phrase_method_is_phrase_aligned() -> None:
+def test_madmom_method_with_low_bpm_confidence_is_not_phrase_aligned() -> None:
+    """is_phrase_aligned is AND'd with is_beatmatchable, so a disqualifying bpm
+    drops phrase alignment to False even when downbeat_method is madmom."""
     result = classify(
         bpm=120.0,
-        bpm_confidence=0.9,
+        bpm_confidence=0.2,
         duration_seconds=200.0,
         downbeats_count=50,
         beats_count=200,
-        downbeat_method="librosa_phrase",
+        downbeat_method="madmom",
         key_confidence=0.8,
     )
-    assert result["is_beatmatchable"] is True
-    assert result["is_phrase_aligned"] is True
-
-
-def test_fallback_4_4_is_beatmatchable_but_not_phrase_aligned() -> None:
-    """Crucial: the old fallback should NOT disqualify beatmatching."""
-    result = classify(
-        bpm=120.0,
-        bpm_confidence=0.9,
-        duration_seconds=200.0,
-        downbeats_count=50,
-        beats_count=200,
-        downbeat_method="fallback_4_4",
-        key_confidence=0.8,
-    )
-    assert result["is_beatmatchable"] is True
+    assert result["is_beatmatchable"] is False
     assert result["is_phrase_aligned"] is False
-    assert "phrase_low_confidence" in result["reasons"]
+    assert "phrase_low_confidence" not in result["reasons"]
 
 
 def test_low_bpm_confidence_below_relaxed_threshold_disqualifies() -> None:

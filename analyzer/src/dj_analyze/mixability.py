@@ -23,7 +23,7 @@ def classify(
     duration_seconds: float,
     downbeats_count: int,
     beats_count: int,
-    downbeat_method: Literal["madmom", "librosa_phrase", "fallback_4_4"],
+    downbeat_method: Literal["madmom"],
     key_confidence: float,
 ) -> dict[str, Any]:
     """Classify the track. See module docstring for output shape."""
@@ -36,10 +36,10 @@ def classify(
     if key_confidence < KEY_CONFIDENCE_ADVISORY_THRESHOLD:
         reasons.append("key_low_confidence")
 
-    # Phrase alignment requires actual structural data; fallback_4_4 doesn't count.
-    is_phrase_aligned = downbeat_method in {"madmom", "librosa_phrase"}
-    if not is_phrase_aligned:
-        reasons.append("phrase_low_confidence")
+    # After the madmom-required switch, downbeat_method is always "madmom" — the
+    # phrase-alignment gate now depends entirely on the other criteria below.
+    # Future: gate on downbeat_confidence threshold once we have a baseline.
+    is_phrase_aligned = True
 
     # Beatmatchability is much more permissive than before.
     disqualifying = {"bpm_low_confidence", "too_short"}
