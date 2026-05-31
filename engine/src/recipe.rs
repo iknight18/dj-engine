@@ -73,6 +73,78 @@ pub fn compute_section_ratio(
     }
 }
 
+/// Pre-computed anchors for the LoopBridge recipe. Both the scorer (to decide
+/// whether to fire) and the build_script (to place phases) consume this.
+/// Returns None when required sidecar data is missing.
+#[derive(Clone, Copy, Debug)]
+pub struct LoopBridgeAnchors {
+    /// Outgoing source-time where the last phrase ends (clamped to vocal_end safety).
+    pub phrase_end_seconds: f64,
+    /// Transition-local bar of the phrase end (where Act 3 fires).
+    pub phrase_end_bar: f64,
+    /// Incoming source-time at the snapped downbeat just before first vocals.
+    pub vocal_entry_snapped: f64,
+    /// Transition-local bar where the loop locks.
+    pub loop_lock_bar: f64,
+    /// Total transition length, rounded up.
+    pub computed_length_bars: f64,
+    /// Camelot key compatibility check result.
+    pub keys_compatible: bool,
+}
+
+/// Compute LoopBridge anchors from outgoing/incoming sidecars and the plan.
+/// Returns None when any required field is missing or the math doesn't yield
+/// usable values.
+pub fn compute_loop_bridge_anchors(
+    outgoing: &crate::sidecar::Sidecar,
+    incoming: &crate::sidecar::Sidecar,
+    plan: &crate::transition::TransitionPlan,
+) -> Option<LoopBridgeAnchors> {
+    let outgoing_bpm = outgoing.bpm?;
+    if outgoing_bpm <= 0.0 {
+        return None;
+    }
+    let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+    let outro_start = outgoing.outro_start_seconds?;
+
+    // Outgoing phrase end (with vocal-end safety net).
+    let p_boundary = outgoing.last_phrase_boundary_at_or_before(outro_start + bar_seconds)?;
+    let v_end = outgoing
+        .last_vocal_segment_end_at_or_before(outro_start + 4.0 * bar_seconds + bar_seconds)
+        .unwrap_or(p_boundary);
+    let phrase_end_seconds = p_boundary.max(v_end);
+
+    // Incoming vocal entry, snapped to nearest downbeat at or before.
+    let incoming_first_vocal = incoming
+        .stems
+        .as_ref()?
+        .vocal_segments
+        .first()
+        .map(|seg| seg[0])?;
+    let vocal_entry_snapped =
+        incoming.snap_to_nearest_downbeat_at_or_before(incoming_first_vocal)?;
+
+    let cue_start = plan.incoming_crossfade_start_seconds;
+    let loop_lock_bar = (vocal_entry_snapped - cue_start) / bar_seconds;
+    let phrase_end_bar =
+        (phrase_end_seconds - plan.outgoing_crossfade_start_seconds) / bar_seconds;
+    let computed_length_bars = phrase_end_bar.ceil();
+
+    let keys_compatible = crate::camelot::keys_compatible(
+        outgoing.key.as_deref().unwrap_or(""),
+        incoming.key.as_deref().unwrap_or(""),
+    );
+
+    Some(LoopBridgeAnchors {
+        phrase_end_seconds,
+        phrase_end_bar,
+        vocal_entry_snapped,
+        loop_lock_bar,
+        computed_length_bars,
+        keys_compatible,
+    })
+}
+
 pub trait Recipe {
     fn name(&self) -> &'static str;
     fn build_script(&self, ctx: &TransitionContext<'_>) -> crate::recipe_script::TransitionScript;

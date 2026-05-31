@@ -992,3 +992,92 @@ fn score_rhythm_swap_no_stems_returns_floor() {
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.05).abs() < 1e-9, "expected 0.05, got {s}");
 }
+
+#[test]
+fn compute_loop_bridge_anchors_returns_some_on_complete_data() {
+    use dj_engine::recipe::{compute_loop_bridge_anchors, LoopBridgeAnchors};
+    use dj_engine::sidecar::Stems;
+
+    let mut outgoing = track(120.0);
+    outgoing.sidecar.bpm = Some(120.0);
+    outgoing.sidecar.outro_start_seconds = Some(60.0);
+    outgoing.sidecar.phrase_boundaries_seconds = Some(vec![16.0, 32.0, 48.0, 64.0]);
+    outgoing.sidecar.key = Some("8A".to_string());
+
+    let mut incoming = track(120.0);
+    incoming.sidecar.bpm = Some(120.0);
+    incoming.sidecar.downbeats_seconds = (0..17).map(|i| i as f64 * 2.0).collect();
+    incoming.sidecar.key = Some("8A".to_string());
+    incoming.sidecar.stems = Some(Stems {
+        drum_density: vec![],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![[16.0, 24.0]],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+
+    // Plan tailored so phrase_end_bar = (48 - 16) / 2 = 16 bars (length=16).
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 16.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let anchors = compute_loop_bridge_anchors(&outgoing.sidecar, &incoming.sidecar, &plan);
+    assert!(anchors.is_some(), "expected Some(anchors) on complete data");
+    let a: LoopBridgeAnchors = anchors.unwrap();
+    assert!(a.keys_compatible);
+    assert!(a.computed_length_bars >= 16.0);
+    assert!(a.loop_lock_bar >= 0.0);
+}
+
+#[test]
+fn compute_loop_bridge_anchors_returns_none_on_missing_phrase_boundaries() {
+    use dj_engine::recipe::compute_loop_bridge_anchors;
+
+    let outgoing = track(120.0); // phrase_boundaries_seconds None
+    let incoming = track(120.0);
+    let plan = standard_blend_plan();
+    assert!(compute_loop_bridge_anchors(&outgoing.sidecar, &incoming.sidecar, &plan).is_none());
+}
+
+#[test]
+fn compute_loop_bridge_anchors_reflects_key_incompatibility() {
+    use dj_engine::recipe::compute_loop_bridge_anchors;
+    use dj_engine::sidecar::Stems;
+
+    let mut outgoing = track(120.0);
+    outgoing.sidecar.bpm = Some(120.0);
+    outgoing.sidecar.outro_start_seconds = Some(60.0);
+    outgoing.sidecar.phrase_boundaries_seconds = Some(vec![16.0, 32.0, 48.0, 64.0]);
+    outgoing.sidecar.key = Some("1A".to_string());
+
+    let mut incoming = track(120.0);
+    incoming.sidecar.bpm = Some(120.0);
+    incoming.sidecar.downbeats_seconds = (0..17).map(|i| i as f64 * 2.0).collect();
+    incoming.sidecar.key = Some("5A".to_string()); // distant from 1A
+    incoming.sidecar.stems = Some(Stems {
+        drum_density: vec![],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![[16.0, 24.0]],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+
+    let plan = TransitionPlan {
+        outgoing_crossfade_start_seconds: 16.0,
+        incoming_crossfade_start_seconds: 16.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let anchors = compute_loop_bridge_anchors(&outgoing.sidecar, &incoming.sidecar, &plan);
+    // Anchors should still compute (the helper doesn't reject on key) but keys_compatible should be false.
+    let a = anchors.expect("expected Some when other fields present");
+    assert!(!a.keys_compatible);
+}
