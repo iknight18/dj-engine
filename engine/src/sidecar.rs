@@ -170,4 +170,42 @@ impl Sidecar {
             Some(sum / count as f64)
         }
     }
+
+    /// Find the last phrase_boundary at or before `seconds`. Returns None when
+    /// phrase_boundaries_seconds is absent/empty or all entries exceed `seconds`.
+    pub fn last_phrase_boundary_at_or_before(&self, seconds: f64) -> Option<f64> {
+        self.phrase_boundaries_seconds
+            .as_ref()?
+            .iter()
+            .rev()
+            .find(|&&t| t <= seconds)
+            .copied()
+    }
+
+    /// Find the last vocal_segment's end at or before `seconds`. Returns None
+    /// when stems is None or no segment ends at or before `seconds`.
+    pub fn last_vocal_segment_end_at_or_before(&self, seconds: f64) -> Option<f64> {
+        self.stems
+            .as_ref()?
+            .vocal_segments
+            .iter()
+            .map(|seg| seg[1])
+            .filter(|&end| end <= seconds)
+            .fold(None, |acc, end| {
+                Some(match acc {
+                    None => end,
+                    Some(prev) => prev.max(end),
+                })
+            })
+    }
+
+    /// Snap `seconds` to the nearest downbeat at or before it. Returns None
+    /// when downbeats_seconds is empty or all entries exceed `seconds`.
+    pub fn snap_to_nearest_downbeat_at_or_before(&self, seconds: f64) -> Option<f64> {
+        self.downbeats_seconds
+            .iter()
+            .rev()
+            .find(|&&t| t <= seconds)
+            .copied()
+    }
 }

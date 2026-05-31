@@ -249,3 +249,51 @@ fn local_bpm_in_window_all_nones_returns_none() {
     let s = make_sidecar(vec![0.0, 2.0, 4.0], vec![None, None]);
     assert!(s.local_bpm_in_window(0.0, 4.0).is_none());
 }
+
+#[test]
+fn last_phrase_boundary_at_or_before_returns_largest_eligible() {
+    let mut s = make_sidecar(vec![], vec![]);
+    s.phrase_boundaries_seconds = Some(vec![10.0, 20.0, 30.0, 40.0]);
+    assert_eq!(s.last_phrase_boundary_at_or_before(25.0), Some(20.0));
+    assert_eq!(s.last_phrase_boundary_at_or_before(40.0), Some(40.0));
+    assert_eq!(s.last_phrase_boundary_at_or_before(5.0), None);
+}
+
+#[test]
+fn last_phrase_boundary_at_or_before_handles_missing_field() {
+    let s = make_sidecar(vec![], vec![]);
+    assert_eq!(s.last_phrase_boundary_at_or_before(100.0), None);
+}
+
+#[test]
+fn last_vocal_segment_end_at_or_before_filters_correctly() {
+    use dj_engine::sidecar::Stems;
+    let mut s = make_sidecar(vec![], vec![]);
+    s.stems = Some(Stems {
+        drum_density: vec![],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![[10.0, 15.0], [20.0, 25.0], [30.0, 35.0]],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+    assert_eq!(s.last_vocal_segment_end_at_or_before(40.0), Some(35.0));
+    assert_eq!(s.last_vocal_segment_end_at_or_before(28.0), Some(25.0));
+    assert_eq!(s.last_vocal_segment_end_at_or_before(12.0), None);
+}
+
+#[test]
+fn last_vocal_segment_end_at_or_before_handles_missing_stems() {
+    let s = make_sidecar(vec![], vec![]);
+    assert_eq!(s.last_vocal_segment_end_at_or_before(100.0), None);
+}
+
+#[test]
+fn snap_to_nearest_downbeat_at_or_before_finds_largest_eligible() {
+    let mut s = make_sidecar(vec![], vec![]);
+    s.downbeats_seconds = vec![0.0, 2.0, 4.0, 6.0, 8.0];
+    assert_eq!(s.snap_to_nearest_downbeat_at_or_before(5.5), Some(4.0));
+    assert_eq!(s.snap_to_nearest_downbeat_at_or_before(8.0), Some(8.0));
+    assert_eq!(s.snap_to_nearest_downbeat_at_or_before(-1.0), None);
+}
