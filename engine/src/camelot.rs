@@ -70,3 +70,21 @@ fn circular_distance(a: u8, b: u8, modulo: u8) -> u8 {
     let raw = a.abs_diff(b);
     raw.min(modulo - raw)
 }
+
+/// Check whether two Camelot keys are compatible for mixing.
+///
+/// Compatible pairs:
+/// - Same key (e.g., `"8A"` and `"8A"`)
+/// - Adjacent N values, same letter (e.g., `"8A"` and `"9A"`, with 12↔1 wrap)
+/// - Same N, opposite letter (relative major/minor; e.g., `"8A"` and `"8B"`)
+///
+/// Returns `false` on unparseable input.
+pub fn keys_compatible(a: &str, b: &str) -> bool {
+    let Some(a_key) = CamelotKey::parse(a) else {
+        return false;
+    };
+    let Some(b_key) = CamelotKey::parse(b) else {
+        return false;
+    };
+    !matches!(a_key.compatibility(&b_key), KeyMatch::None)
+}

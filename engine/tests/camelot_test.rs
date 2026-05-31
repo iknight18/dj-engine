@@ -1,4 +1,4 @@
-use dj_engine::camelot::{CamelotKey, KeyMatch};
+use dj_engine::camelot::{keys_compatible, CamelotKey, KeyMatch};
 
 #[test]
 fn parses_valid_keys() {
@@ -49,4 +49,40 @@ fn distant_keys_are_no_match() {
     let a = CamelotKey::parse("8A").unwrap();
     let b = CamelotKey::parse("3A").unwrap();
     assert_eq!(a.compatibility(&b), KeyMatch::None);
+}
+
+#[test]
+fn keys_compatible_same_key_returns_true() {
+    assert!(keys_compatible("8A", "8A"));
+    assert!(keys_compatible("12B", "12B"));
+}
+
+#[test]
+fn keys_compatible_plus_minus_one_same_letter_returns_true() {
+    assert!(keys_compatible("8A", "9A"));
+    assert!(keys_compatible("8A", "7A"));
+    assert!(keys_compatible("12A", "1A")); // wraps around
+    assert!(keys_compatible("1A", "12A"));
+}
+
+#[test]
+fn keys_compatible_same_n_opposite_letter_returns_true() {
+    // Relative major/minor
+    assert!(keys_compatible("8A", "8B"));
+    assert!(keys_compatible("3B", "3A"));
+}
+
+#[test]
+fn keys_compatible_distant_keys_returns_false() {
+    assert!(!keys_compatible("1A", "5A"));
+    assert!(!keys_compatible("8A", "11B"));
+}
+
+#[test]
+fn keys_compatible_invalid_input_returns_false() {
+    assert!(!keys_compatible("", "8A"));
+    assert!(!keys_compatible("Cmaj", "8A"));
+    assert!(!keys_compatible("8A", "13A"));
+    assert!(!keys_compatible("0A", "8A"));
+    assert!(!keys_compatible("8C", "8A"));
 }
