@@ -688,6 +688,197 @@ impl Recipe for RhythmSwap {
     }
 }
 
+/// `LoopBridge`: stems-aware three-act transition. See
+/// `docs/superpowers/specs/2026-05-30-loop-bridge-recipe-design.md` for the
+/// full design rationale.
+///
+/// Act 1 (bars 0 -> loop_lock_bar): incoming silent (fader=0); source pulls
+/// into loop buffer with stems = {drums, bass, vocals=0, other=0} so the
+/// buffer captures rhythm-only content.
+///
+/// Act 2 (loop_lock_bar -> phrase_end_bar-1): LoopGate ON. Incoming filter
+/// sweeps 0.85 -> 0 (rising rhythm reveal). Outgoing filter sweeps 0 -> 0.6
+/// (gentle thinning). Incoming fader 0 -> 0.85 EqualPowerIn over first 4 bars.
+/// Outgoing fader 1.0 -> 0.55 Linear (loudness compensation).
+///
+/// Act 3 (at phrase_end_bar): LoopGate OFF -> incoming source resumes from
+/// vocal_entry_snapped. Outgoing fader Step -> 0. Incoming fader Step -> 1.0.
+/// Incoming.{vocals, other} stems restored. Both filters Step -> 0.
+///
+/// Loudness compensation in v1 is hand-tuned; refine after listening.
+pub struct LoopBridge;
+
+impl Recipe for LoopBridge {
+    fn name(&self) -> &'static str {
+        "loop_bridge"
+    }
+
+    fn requires_stems(&self) -> bool {
+        true
+    }
+
+    fn build_script(&self, ctx: &TransitionContext<'_>) -> TransitionScript {
+        use crate::deck::StemKind;
+
+        let outgoing_bpm = ctx.outgoing.sidecar.bpm.unwrap_or(120.0);
+        let bar_seconds = (60.0 / outgoing_bpm) * 4.0;
+        let ratio = ctx.ratio;
+
+        // Compute anchors via the shared helper. Fall back to safe defaults
+        // if data is missing (the recipe shouldn't have been picked in that
+        // case, but defend anyway).
+        let anchors = compute_loop_bridge_anchors(
+            &ctx.outgoing.sidecar,
+            &ctx.incoming.sidecar,
+            ctx.plan,
+        );
+        let (loop_lock_bar, phrase_end_bar, computed_length) = match anchors {
+            Some(a) => (a.loop_lock_bar, a.phrase_end_bar, a.computed_length_bars),
+            None => (4.0, 16.0, 16.0), // safe fallback
+        };
+
+        TransitionScript {
+            length_bars: computed_length as usize,
+            phases: vec![
+                Phase::TempoAlign {
+                    deck: DeckRole::Incoming,
+                    ratio,
+                },
+
+                // === Act 1: loop preparation ===
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Drums,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Bass,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Vocals,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Other,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
+                },
+
+                Phase::LoopGate {
+                    deck: DeckRole::Incoming,
+                    on_at: bar(loop_lock_bar),
+                    off_at: bar(phrase_end_bar),
+                },
+
+                // === Act 2: filter crossfade ===
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.85,
+                    span: bars(loop_lock_bar, loop_lock_bar + 4.0),
+                    curve: Curve::EqualPowerIn,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 1.0,
+                    to: 0.55,
+                    span: bars(loop_lock_bar, phrase_end_bar - 1.0),
+                    curve: Curve::Linear,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 0.85,
+                    to: 0.0,
+                    span: bars(loop_lock_bar, phrase_end_bar - 1.0),
+                    curve: Curve::Linear,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Outgoing,
+                    from: 0.0,
+                    to: 0.6,
+                    span: bars(loop_lock_bar, phrase_end_bar - 1.0),
+                    curve: Curve::Linear,
+                },
+
+                // === Act 3: vocal handoff ===
+                Phase::Fader {
+                    deck: DeckRole::Outgoing,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(phrase_end_bar, phrase_end_bar),
+                    curve: Curve::Step,
+                },
+                Phase::Fader {
+                    deck: DeckRole::Incoming,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(phrase_end_bar, phrase_end_bar),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Vocals,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(phrase_end_bar, phrase_end_bar),
+                    curve: Curve::Step,
+                },
+                Phase::StemFader {
+                    deck: DeckRole::Incoming,
+                    stem: StemKind::Other,
+                    from: 1.0,
+                    to: 1.0,
+                    span: bars(phrase_end_bar, phrase_end_bar),
+                    curve: Curve::Step,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Outgoing,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(phrase_end_bar, phrase_end_bar),
+                    curve: Curve::Step,
+                },
+                Phase::Filter {
+                    deck: DeckRole::Incoming,
+                    from: 0.0,
+                    to: 0.0,
+                    span: bars(phrase_end_bar, phrase_end_bar),
+                    curve: Curve::Step,
+                },
+            ],
+            outgoing_init: None,
+            incoming_init: Some(DeckInitConfig {
+                echo_delay_seconds: None,
+                echo_feedback: None,
+                loop_bars: Some(4),
+                loop_bar_seconds: Some(bar_seconds),
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecipeChoice {
     EqualPower,

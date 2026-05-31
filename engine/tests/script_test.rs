@@ -216,3 +216,112 @@ fn rhythm_swap_requires_stems_is_true() {
     use dj_engine::recipe::{Recipe, RhythmSwap};
     assert!(RhythmSwap.requires_stems());
 }
+
+#[test]
+fn loop_bridge_emits_three_act_phases() {
+    use dj_engine::deck::StemKind;
+    use dj_engine::recipe::{LoopBridge, Recipe};
+    use dj_engine::recipe_script::{DeckRole, Phase};
+
+    let mut outgoing = track();
+    outgoing.sidecar.bpm = Some(120.0);
+    outgoing.sidecar.outro_start_seconds = Some(60.0);
+    outgoing.sidecar.phrase_boundaries_seconds = Some(vec![16.0, 32.0, 48.0, 64.0]);
+    outgoing.sidecar.key = Some("8A".to_string());
+
+    let mut incoming = track();
+    incoming.sidecar.bpm = Some(120.0);
+    incoming.sidecar.downbeats_seconds = (0..32).map(|i| i as f64 * 2.0).collect();
+    incoming.sidecar.key = Some("8A".to_string());
+    incoming.sidecar.stems = Some(dj_engine::sidecar::Stems {
+        drum_density: vec![],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![[16.0, 24.0]],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+
+    // Custom plan whose outgoing/incoming crossfade-start anchors align with
+    // the sidecar test data so compute_loop_bridge_anchors yields a positive
+    // phrase_end_bar.
+    let p = TransitionPlan {
+        outgoing_crossfade_start_seconds: 16.0,
+        incoming_crossfade_start_seconds: 0.0,
+        length_bars: 16,
+        use_eq_swap: false,
+        skip_tempo_align: false,
+    };
+    let ctx = TransitionContext {
+        outgoing: &outgoing,
+        incoming: &incoming,
+        plan: &p,
+        master_clock_frames: 0,
+        outgoing_deck: DeckId::A,
+        incoming_deck: DeckId::B,
+        sample_rate: SR,
+        ratio: 1.0,
+        ratio_global: 1.0,
+    };
+
+    let script = LoopBridge.build_script(&ctx);
+
+    // Act 1 — incoming stems isolated to rhythm-only at bar 0.
+    let in_vocals_mute = script.phases.iter().any(|p| matches!(
+        p,
+        Phase::StemFader {
+            deck: DeckRole::Incoming, stem: StemKind::Vocals,
+            from, to, span, ..
+        } if (from - 0.0).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
+              && (span.start.bars - 0.0).abs() < 1e-9
+    ));
+    assert!(in_vocals_mute, "incoming vocals mute at bar 0 missing");
+
+    // LoopGate on incoming.
+    let loopgate_on = script.phases.iter().any(|p| matches!(
+        p,
+        Phase::LoopGate { deck: DeckRole::Incoming, .. }
+    ));
+    assert!(loopgate_on, "LoopGate on incoming missing");
+
+    // Act 2 — incoming filter sweep 0.85 → 0.
+    let incoming_filter = script.phases.iter().any(|p| matches!(
+        p,
+        Phase::Filter {
+            deck: DeckRole::Incoming, from, to, ..
+        } if (from - 0.85).abs() < 1e-9 && (to - 0.0).abs() < 1e-9
+    ));
+    assert!(incoming_filter, "incoming filter 0.85->0 sweep missing");
+
+    // Act 2 — outgoing filter sweep 0 → 0.6.
+    let outgoing_filter = script.phases.iter().any(|p| matches!(
+        p,
+        Phase::Filter {
+            deck: DeckRole::Outgoing, from, to, ..
+        } if (from - 0.0).abs() < 1e-9 && (to - 0.6).abs() < 1e-9
+    ));
+    assert!(outgoing_filter, "outgoing filter 0->0.6 sweep missing");
+
+    // Act 3 — incoming vocals restored Step at a later bar.
+    let in_vocals_restored = script.phases.iter().any(|p| matches!(
+        p,
+        Phase::StemFader {
+            deck: DeckRole::Incoming, stem: StemKind::Vocals,
+            from, to, span, ..
+        } if (from - 1.0).abs() < 1e-9 && (to - 1.0).abs() < 1e-9
+              && span.start.bars > 0.0
+    ));
+    assert!(in_vocals_restored, "incoming vocals restored Step missing");
+
+    // outgoing_init is None; incoming_init carries loop_bars=4.
+    assert!(script.outgoing_init.is_none());
+    let inc_init = script.incoming_init.as_ref().expect("incoming_init must be set");
+    assert_eq!(inc_init.loop_bars, Some(4));
+}
+
+#[test]
+fn loop_bridge_requires_stems_is_true() {
+    use dj_engine::recipe::{LoopBridge, Recipe};
+    assert!(LoopBridge.requires_stems());
+}
