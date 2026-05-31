@@ -888,6 +888,7 @@ pub enum RecipeChoice {
     LoopOut,
     Drop,
     RhythmSwap,
+    LoopBridge,
 }
 
 /// Legacy plan-only picker. Kept for tests and as a reference baseline.
@@ -920,6 +921,7 @@ pub fn pick_recipe_with_scores(
         RecipeChoice::LoopOut,
         RecipeChoice::Drop,
         RecipeChoice::RhythmSwap,
+        RecipeChoice::LoopBridge,
     ];
     let jitter_range = 0.04;
     let mut scored: Vec<(RecipeChoice, f64)> = Vec::with_capacity(candidates.len());
@@ -961,6 +963,7 @@ pub fn pick_recipe(
         RecipeChoice::LoopOut,
         RecipeChoice::Drop,
         RecipeChoice::RhythmSwap,
+        RecipeChoice::LoopBridge,
     ];
 
     let mut best = (RecipeChoice::EqualPower, f64::MIN);
@@ -995,6 +998,7 @@ fn recipe_choice_id(c: RecipeChoice) -> u64 {
         RecipeChoice::LoopOut => 7,
         RecipeChoice::Drop => 11,
         RecipeChoice::RhythmSwap => 17,
+        RecipeChoice::LoopBridge => 18,
     }
 }
 
@@ -1010,6 +1014,7 @@ fn recency_hash(recency: &crate::recipe_recency::RecipeRecency) -> u64 {
         RecipeChoice::LoopOut,
         RecipeChoice::Drop,
         RecipeChoice::RhythmSwap,
+        RecipeChoice::LoopBridge,
     ] {
         let bit = if recency.contains(c) { 1 } else { 0 };
         h = h
@@ -1039,6 +1044,9 @@ pub struct PairScoreInputs {
     pub outgoing_drum_density_mean: f64,
     /// Mean of the per-bar drum_density array for incoming. 0.0 when stems absent.
     pub incoming_drum_density_mean: f64,
+    /// Pre-computed LoopBridge anchors. Some(...) when all required sidecar
+    /// data is present; None when missing. Used by the LoopBridge scoring branch.
+    pub loop_bridge_anchors: Option<LoopBridgeAnchors>,
 }
 
 impl PairScoreInputs {
@@ -1087,6 +1095,11 @@ impl PairScoreInputs {
                 }
             })
             .unwrap_or(0.0);
+        let loop_bridge_anchors = compute_loop_bridge_anchors(
+            &outgoing.sidecar,
+            &incoming.sidecar,
+            plan,
+        );
         Self {
             length_bars: plan.length_bars,
             use_eq_swap: plan.use_eq_swap,
@@ -1097,6 +1110,7 @@ impl PairScoreInputs {
             stems_available,
             outgoing_drum_density_mean,
             incoming_drum_density_mean,
+            loop_bridge_anchors,
         }
     }
 }
@@ -1169,6 +1183,21 @@ pub fn score_recipe(choice: RecipeChoice, inputs: &PairScoreInputs) -> f64 {
                 0.40
             } else if inputs.stems_available && layering_long_enough {
                 0.20
+            } else {
+                0.05
+            }
+        }
+        RecipeChoice::LoopBridge => {
+            let Some(a) = inputs.loop_bridge_anchors else { return 0.05; };
+            if !inputs.stems_available || !inputs.phrase_aligned {
+                return 0.05;
+            }
+            let loop_lock_ok = a.loop_lock_bar >= 4.0;
+            let act2_long_enough = (a.phrase_end_bar - a.loop_lock_bar) >= 8.0;
+            let length_in_range =
+                a.computed_length_bars >= 16.0 && a.computed_length_bars <= 32.0;
+            if loop_lock_ok && act2_long_enough && length_in_range && a.keys_compatible {
+                0.90
             } else {
                 0.05
             }

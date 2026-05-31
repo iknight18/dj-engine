@@ -236,6 +236,7 @@ async fn main() -> anyhow::Result<()> {
             dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
             dj_engine::recipe::RecipeChoice::Drop => "drop",
             dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
+            dj_engine::recipe::RecipeChoice::LoopBridge => "loop_bridge",
         };
         let outgoing_global_bpm = current.sidecar.bpm.unwrap_or(120.0);
         let incoming_global_bpm = next_track.sidecar.bpm.unwrap_or(outgoing_global_bpm);
@@ -374,6 +375,18 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+            dj_engine::recipe::RecipeChoice::LoopBridge => {
+                dj_engine::scheduler::TransitionScheduler::arm(
+                    &mut mixer,
+                    current_deck,
+                    other_deck,
+                    &current,
+                    &next_track,
+                    &plan,
+                    &dj_engine::recipe::LoopBridge,
+                )
+                .await?
+            }
         };
 
         // Tick through the transition.
@@ -441,6 +454,7 @@ fn recipe_choice_name(c: dj_engine::recipe::RecipeChoice) -> &'static str {
         dj_engine::recipe::RecipeChoice::LoopOut => "loop_out",
         dj_engine::recipe::RecipeChoice::Drop => "drop",
         dj_engine::recipe::RecipeChoice::RhythmSwap => "rhythm_swap",
+        dj_engine::recipe::RecipeChoice::LoopBridge => "loop_bridge",
     }
 }
 

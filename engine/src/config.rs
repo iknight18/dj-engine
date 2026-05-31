@@ -55,6 +55,7 @@ pub enum ForceRecipe {
     LoopOut,
     Drop,
     RhythmSwap,
+    LoopBridge,
 }
 
 impl ForceRecipe {
@@ -67,6 +68,7 @@ impl ForceRecipe {
             ForceRecipe::LoopOut => crate::recipe::RecipeChoice::LoopOut,
             ForceRecipe::Drop => crate::recipe::RecipeChoice::Drop,
             ForceRecipe::RhythmSwap => crate::recipe::RecipeChoice::RhythmSwap,
+            ForceRecipe::LoopBridge => crate::recipe::RecipeChoice::LoopBridge,
         }
     }
 }

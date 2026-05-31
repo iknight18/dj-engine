@@ -403,6 +403,7 @@ fn inputs_default() -> PairScoreInputs {
         stems_available: false,
         outgoing_drum_density_mean: 0.0,
         incoming_drum_density_mean: 0.0,
+        loop_bridge_anchors: None,
     }
 }
 
@@ -450,6 +451,7 @@ fn score_filter_fade_strong_energy_up_returns_0_85() {
         stems_available: false,
         outgoing_drum_density_mean: 0.0,
         incoming_drum_density_mean: 0.0,
+        loop_bridge_anchors: None,
     };
     assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.85).abs() < 1e-9);
 }
@@ -467,6 +469,7 @@ fn score_filter_fade_moderate_energy_up_returns_0_70() {
         stems_available: false,
         outgoing_drum_density_mean: 0.0,
         incoming_drum_density_mean: 0.0,
+        loop_bridge_anchors: None,
     };
     assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.70).abs() < 1e-9);
 }
@@ -484,6 +487,7 @@ fn score_filter_fade_flat_energy_returns_0_55() {
         stems_available: false,
         outgoing_drum_density_mean: 0.0,
         incoming_drum_density_mean: 0.0,
+        loop_bridge_anchors: None,
     };
     assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.55).abs() < 1e-9);
 }
@@ -501,6 +505,7 @@ fn score_filter_fade_energy_down_returns_0_30() {
         stems_available: false,
         outgoing_drum_density_mean: 0.0,
         incoming_drum_density_mean: 0.0,
+        loop_bridge_anchors: None,
     };
     assert!((score_recipe(RecipeChoice::FilterFade, &inputs) - 0.30).abs() < 1e-9);
 }
@@ -826,6 +831,7 @@ fn score_drop_big_ramp_up() {
         stems_available: false,
         outgoing_drum_density_mean: 0.0,
         incoming_drum_density_mean: 0.0,
+        loop_bridge_anchors: None,
     };
     assert!((score_recipe(RecipeChoice::Drop, &inputs) - 0.75).abs() < 1e-9);
 }
@@ -893,6 +899,7 @@ fn score_rhythm_swap_strong_drums_heavy_similar_and_aligned() {
         stems_available: true,
         outgoing_drum_density_mean: 0.75,
         incoming_drum_density_mean: 0.80,
+        loop_bridge_anchors: None,
     };
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.92).abs() < 1e-9, "expected 0.92, got {s}");
@@ -912,6 +919,7 @@ fn score_rhythm_swap_drums_similar_but_bass_light_returns_0_75() {
         stems_available: true,
         outgoing_drum_density_mean: 0.75,
         incoming_drum_density_mean: 0.80,
+        loop_bridge_anchors: None,
     };
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.75).abs() < 1e-9, "expected 0.75, got {s}");
@@ -931,6 +939,7 @@ fn score_rhythm_swap_drums_heavy_but_dissimilar_returns_0_40() {
         stems_available: true,
         outgoing_drum_density_mean: 0.55,
         incoming_drum_density_mean: 0.95,
+        loop_bridge_anchors: None,
     };
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.40).abs() < 1e-9, "expected 0.40, got {s}");
@@ -950,6 +959,7 @@ fn score_rhythm_swap_drums_light_returns_0_20() {
         stems_available: true,
         outgoing_drum_density_mean: 0.30,
         incoming_drum_density_mean: 0.30,
+        loop_bridge_anchors: None,
     };
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.20).abs() < 1e-9, "expected 0.20, got {s}");
@@ -969,6 +979,7 @@ fn score_rhythm_swap_short_length_returns_floor() {
         stems_available: true,
         outgoing_drum_density_mean: 0.75,
         incoming_drum_density_mean: 0.80,
+        loop_bridge_anchors: None,
     };
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.05).abs() < 1e-9, "expected 0.05, got {s}");
@@ -988,6 +999,7 @@ fn score_rhythm_swap_no_stems_returns_floor() {
         stems_available: false,
         outgoing_drum_density_mean: 0.75,
         incoming_drum_density_mean: 0.80,
+        loop_bridge_anchors: None,
     };
     let s = score_recipe(RecipeChoice::RhythmSwap, &inputs);
     assert!((s - 0.05).abs() < 1e-9, "expected 0.05, got {s}");
@@ -1080,4 +1092,95 @@ fn compute_loop_bridge_anchors_reflects_key_incompatibility() {
     // Anchors should still compute (the helper doesn't reject on key) but keys_compatible should be false.
     let a = anchors.expect("expected Some when other fields present");
     assert!(!a.keys_compatible);
+}
+
+// ---------------------------------------------------------------------------
+// LoopBridge scoring tests (sub-project: LoopBridge recipe, task 5)
+// ---------------------------------------------------------------------------
+
+fn loop_bridge_complete_inputs() -> (
+    dj_engine::library::LoadedTrack,
+    dj_engine::library::LoadedTrack,
+    dj_engine::transition::TransitionPlan,
+) {
+    use dj_engine::sidecar::Stems;
+    let mut outgoing = track(120.0);
+    outgoing.sidecar.bpm = Some(120.0);
+    outgoing.sidecar.outro_start_seconds = Some(60.0);
+    outgoing.sidecar.phrase_boundaries_seconds = Some(vec![16.0, 32.0, 48.0, 64.0]);
+    outgoing.sidecar.key = Some("8A".to_string());
+    outgoing.sidecar.is_phrase_aligned = Some(true);
+    outgoing.sidecar.stems = Some(Stems {
+        drum_density: vec![0.7; 32],
+        bass_density: vec![0.7; 32],
+        vocal_density: vec![0.0; 32],
+        vocal_segments: vec![[8.0, 16.0]],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+
+    let mut incoming = track(120.0);
+    incoming.sidecar.bpm = Some(120.0);
+    incoming.sidecar.downbeats_seconds = (0..32).map(|i| i as f64 * 2.0).collect();
+    incoming.sidecar.key = Some("8A".to_string());
+    incoming.sidecar.is_phrase_aligned = Some(true);
+    incoming.sidecar.stems = Some(Stems {
+        drum_density: vec![],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![[16.0, 28.0]],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+
+    // Custom plan: outgoing_crossfade_start at 16 (phrase_end = 48 from boundaries,
+    // gives phrase_end_bar = 16). incoming_crossfade_start at 0 (vocal_entry 16
+    // -> loop_lock_bar = 8; act2_length = 16 - 8 = 8 bars, satisfies >= 8).
+    let mut plan = standard_blend_plan();
+    plan.outgoing_crossfade_start_seconds = 16.0;
+    plan.incoming_crossfade_start_seconds = 0.0;
+
+    (outgoing, incoming, plan)
+}
+
+#[test]
+fn score_loop_bridge_complete_conditions_returns_high() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let (outgoing, incoming, plan) = loop_bridge_complete_inputs();
+    let inputs = PairScoreInputs::from_pair(&plan, &outgoing, &incoming);
+    let s = score_recipe(RecipeChoice::LoopBridge, &inputs);
+    assert!(s >= 0.85, "expected high score, got {s}");
+}
+
+#[test]
+fn score_loop_bridge_incompatible_keys_returns_floor() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+
+    let (mut outgoing, mut incoming, plan) = loop_bridge_complete_inputs();
+    outgoing.sidecar.key = Some("1A".to_string());
+    incoming.sidecar.key = Some("5A".to_string());
+    let inputs = PairScoreInputs::from_pair(&plan, &outgoing, &incoming);
+    assert!((score_recipe(RecipeChoice::LoopBridge, &inputs) - 0.05).abs() < 1e-9);
+}
+
+#[test]
+fn score_loop_bridge_missing_vocals_returns_floor() {
+    use dj_engine::recipe::{score_recipe, PairScoreInputs, RecipeChoice};
+    use dj_engine::sidecar::Stems;
+
+    let (outgoing, mut incoming, plan) = loop_bridge_complete_inputs();
+    incoming.sidecar.stems = Some(Stems {
+        drum_density: vec![],
+        bass_density: vec![],
+        vocal_density: vec![],
+        vocal_segments: vec![],
+        energy_per_stem: Default::default(),
+        demucs_version: None,
+        model: None,
+    });
+    let inputs = PairScoreInputs::from_pair(&plan, &outgoing, &incoming);
+    assert!((score_recipe(RecipeChoice::LoopBridge, &inputs) - 0.05).abs() < 1e-9);
 }
