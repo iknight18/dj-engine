@@ -733,8 +733,13 @@ impl Recipe for LoopBridge {
             ctx.plan,
         );
         let (loop_lock_bar, phrase_end_bar, computed_length) = match anchors {
-            Some(a) => (a.loop_lock_bar, a.phrase_end_bar, a.computed_length_bars),
-            None => (4.0, 16.0, 16.0), // safe fallback
+            // Accept anchors only when length is meaningful AND loop_lock is
+            // non-negative. Negative loop_lock means incoming's vocal_entry is
+            // BEFORE the planner's cue point — invalid. Tiny computed_length
+            // means phrase_end is before cue — also invalid. Fall back.
+            Some(a) if a.computed_length_bars >= 8.0 && a.loop_lock_bar >= 0.0 =>
+                (a.loop_lock_bar, a.phrase_end_bar, a.computed_length_bars),
+            _ => (4.0, 16.0, 16.0), // safe fallback
         };
 
         TransitionScript {
