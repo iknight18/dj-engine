@@ -812,33 +812,45 @@ impl Recipe for LoopBridge {
                 },
 
                 // === Act 2: filter crossfade ===
+                // Incoming fader rises to FULL over first 4 bars of Act 2.
+                // No loudness compensation cap — the filter sweep below
+                // controls perceptible brightness, not the fader.
                 Phase::Fader {
                     deck: DeckRole::Incoming,
                     from: 0.0,
-                    to: 0.85,
+                    to: 1.0,
                     span: bars(loop_lock_bar, loop_lock_bar + 4.0),
                     curve: Curve::EqualPowerIn,
                 },
+                // Outgoing fader thins aggressively to leave room for incoming.
+                // 1.0 -> 0.35 over Act 2.
                 Phase::Fader {
                     deck: DeckRole::Outgoing,
                     from: 1.0,
-                    to: 0.55,
+                    to: 0.35,
                     span: bars(loop_lock_bar, phrase_end_bar - 1.0),
                     curve: Curve::Linear,
                 },
+                // Incoming filter — gentler HP start (0.5 instead of 0.85)
+                // so bass + low-mids come through earlier. Still gives the
+                // "rising rhythm" reveal, but the rhythm is audible from
+                // the start of Act 2 rather than just hat shimmer.
                 Phase::Filter {
                     deck: DeckRole::Incoming,
-                    from: 0.85,
+                    from: 0.5,
                     to: 0.0,
                     span: bars(loop_lock_bar, phrase_end_bar - 1.0),
                     curve: Curve::Linear,
                 },
+                // Outgoing keeps filter at bypass — no muddiness from
+                // overlapping HP. Let outgoing's natural mix ring through
+                // while it fades.
                 Phase::Filter {
                     deck: DeckRole::Outgoing,
                     from: 0.0,
-                    to: 0.6,
-                    span: bars(loop_lock_bar, phrase_end_bar - 1.0),
-                    curve: Curve::Linear,
+                    to: 0.0,
+                    span: bars(0.0, 0.0),
+                    curve: Curve::Step,
                 },
 
                 // === Act 3: vocal handoff ===
