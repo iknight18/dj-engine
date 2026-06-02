@@ -733,11 +733,14 @@ impl Recipe for LoopBridge {
             ctx.plan,
         );
         let (loop_lock_bar, phrase_end_bar, computed_length, anchors_used) = match anchors {
-            // Accept anchors only when length is meaningful AND loop_lock is
-            // non-negative. Negative loop_lock means incoming's vocal_entry is
-            // BEFORE the planner's cue point — invalid. Tiny computed_length
-            // means phrase_end is before cue — also invalid. Fall back.
-            Some(a) if a.computed_length_bars >= 8.0 && a.loop_lock_bar >= 0.0 =>
+            // Accept anchors only when:
+            //   - computed length is meaningful
+            //   - loop_lock_bar >= 4 (buffer needs 4 bars to fill — see loop_bars below)
+            //   - Act 2 has at least 4 bars after the lock for the filter crossfade
+            // Otherwise fall back to safe defaults.
+            Some(a) if a.computed_length_bars >= 8.0
+                && a.loop_lock_bar >= 4.0
+                && (a.phrase_end_bar - a.loop_lock_bar) >= 4.0 =>
                 (a.loop_lock_bar, a.phrase_end_bar, a.computed_length_bars, "data_driven"),
             _ => (4.0, 16.0, 16.0, "fallback"),
         };

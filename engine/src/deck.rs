@@ -532,8 +532,10 @@ impl Deck {
         // Loop transitions (boundary-trigger semantics at tick start).
         if self.state.loop_gate >= 0.5 && !self.loop_buffer.is_locked() {
             self.loop_buffer.lock();
+            tracing::info!(deck = ?self.id, cursor = start_cursor, "loop locked");
         } else if self.state.loop_gate < 0.5 && self.loop_buffer.is_locked() {
             self.loop_buffer.unlock();
+            tracing::info!(deck = ?self.id, cursor = start_cursor, "loop unlocked");
         }
         let loop_active = self.loop_buffer.is_locked();
         let filter_active = self.state.filter_knob.abs() >= FILTER_BYPASS_EPSILON;
