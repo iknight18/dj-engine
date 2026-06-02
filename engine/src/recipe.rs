@@ -732,15 +732,26 @@ impl Recipe for LoopBridge {
             &ctx.incoming.sidecar,
             ctx.plan,
         );
-        let (loop_lock_bar, phrase_end_bar, computed_length) = match anchors {
+        let (loop_lock_bar, phrase_end_bar, computed_length, anchors_used) = match anchors {
             // Accept anchors only when length is meaningful AND loop_lock is
             // non-negative. Negative loop_lock means incoming's vocal_entry is
             // BEFORE the planner's cue point — invalid. Tiny computed_length
             // means phrase_end is before cue — also invalid. Fall back.
             Some(a) if a.computed_length_bars >= 8.0 && a.loop_lock_bar >= 0.0 =>
-                (a.loop_lock_bar, a.phrase_end_bar, a.computed_length_bars),
-            _ => (4.0, 16.0, 16.0), // safe fallback
+                (a.loop_lock_bar, a.phrase_end_bar, a.computed_length_bars, "data_driven"),
+            _ => (4.0, 16.0, 16.0, "fallback"),
         };
+
+        tracing::info!(
+            recipe = "loop_bridge",
+            anchors_used,
+            loop_lock_bar,
+            phrase_end_bar,
+            computed_length_bars = computed_length,
+            bar_seconds,
+            loop_bars = 4,
+            "LoopBridge anchors"
+        );
 
         TransitionScript {
             length_bars: computed_length as usize,
